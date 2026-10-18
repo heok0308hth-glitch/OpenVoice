@@ -1,0 +1,36 @@
+{
+ "version": 1,
+ "files": {
+  "bert_kr.onnx": {
+   "size": 108543926,
+   "sha256": "cece021a13c4b8e769f26adabbce6ad053cbd510695c9369f0ff2ba40c6ecbff",
+   "parts": [
+    "bert_kr.onnx.part0",
+    "bert_kr.onnx.part1",
+    "bert_kr.onnx.part2"
+   ]
+  },
+  "melo_kr.onnx": {
+   "size": 52492044,
+   "sha256": "9d44badae405c852e6fb2414c1c45d37f032e113b142ae993b29068f4c89296a",
+   "parts": [
+    "melo_kr.onnx.part0",
+    "melo_kr.onnx.part1"
+   ]
+  },
+  "tone_extract.onnx": {
+   "size": 5845131,
+   "sha256": "c1ac4448cac7bf9e132218bbd33384d63f56f7a8bfcfd614db1824b87cd46104",
+   "parts": [
+    "tone_extract.onnx.part0"
+   ]
+  },
+  "tone_convert.onnx": {
+   "size": 45624288,
+   "sha256": "929a0dc809b0576c447fb888aef83f28dc4d27719e0614a6b02f91184804ff11",
+   "parts": [
+    "tone_convert.onnx.part0"
+   ]
+  }
+ }
+}
