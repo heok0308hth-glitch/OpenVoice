@@ -434,6 +434,49 @@ object Dsp {
         }
     }
 
+    /**
+     * Linear-phase FIR (513 taps) whose magnitude follows [bandDb] on the LTAS bands of [VoiceAnalysis.ltas]
+     * (100 Hz – 10 kHz, log spaced), interpolated in log frequency and held flat outside.
+     */
+    fun designEq(bandDb: DoubleArray, sr: Int, taps: Int = 513): FloatArray {
+        val n = 2048
+        val hi = minOf(10000.0, sr / 2.0 * 0.95); val lo = 100.0; val nb = bandDb.size
+        val centres = DoubleArray(nb) { b -> lo * Math.pow(hi / lo, (b + 0.5) / nb) }
+        val re = DoubleArray(n); val im = DoubleArray(n)
+        for (k in 0..n / 2) {
+            val f = k.toDouble() * sr / n
+            val g = when {
+                f <= centres[0] -> bandDb[0]
+                f >= centres[nb - 1] -> bandDb[nb - 1]
+                else -> { var b = 0; while (centres[b + 1] < f) b++; val t = ln(f / centres[b]) / ln(centres[b + 1] / centres[b]); bandDb[b] * (1 - t) + bandDb[b + 1] * t }
+            }
+            re[k] = Math.pow(10.0, g / 20); if (k in 1 until n / 2) re[n - k] = re[k]
+        }
+        Fft.transform(re, im, inverse = true)                 // zero-phase impulse (real, symmetric)
+        val h = FloatArray(taps); val half = taps / 2
+        for (i in 0 until taps) {
+            val idx = (i - half + n) % n
+            val w = 0.5 - 0.5 * cos(2 * PI * i / (taps - 1))
+            h[i] = (re[idx] * w).toFloat()
+        }
+        return h
+    }
+
+    /** Applies an FIR filter, compensating its delay (output length = input length). */
+    fun fir(x: FloatArray, h: FloatArray): FloatArray {
+        val conv = StreamingConvolver(h, 1024)
+        val delay = h.size / 2 + conv.latency
+        val y = conv.process(x.copyOf(x.size + delay))
+        return y.copyOfRange(delay, delay + x.size)
+    }
+
+    /** Microphone colour + room of the original recording (room tone is mixed by [BackgroundMixer]). */
+    fun applyEnvironment(x: FloatArray, sr: Int, eq: DoubleArray?, room: Room, wet: Double, eqFir: FloatArray? = null): FloatArray {
+        var y = if (eqFir != null) fir(x, eqFir) else if (eq != null && eq.any { abs(it) > 0.2 }) fir(x, designEq(eq, sr)) else x
+        if (room != Room.NONE && wet > 0.005) y = reverb(y, sr, room, wet, 0.6).copyOf(maxOf(y.size, x.size))
+        return y
+    }
+
     /** Noise beds that need no assets. */
     fun noiseBed(kind: String, sr: Int, seconds: Double = 8.0): FloatArray {
         val rnd = java.util.Random(5)

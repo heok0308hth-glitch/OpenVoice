@@ -44,7 +44,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val job = ExpressiveJob(eng, bank, File(getApplication<Application>().cacheDir, "preview"), snippet, ExpressiveJob.Options(
                     base = delivery.style(), autoEmotion = delivery.autoEmotion, emotionRouting = delivery.emotionRouting,
                     dictionary = AppGraph.settings.dictionary, pauseScale = delivery.pauseScale, background = bed,
-                    backgroundDb = delivery.backgroundDb.toDouble(), mastering = delivery.mastering, useTuning = delivery.useTuning))
+                    backgroundDb = delivery.backgroundDb.toDouble(), mastering = delivery.mastering, useTuning = delivery.useTuning,
+                    recreateEnvironment = delivery.recreateEnv))
                 if (job.chunks.isEmpty()) error("읽을 수 있는 한국어 텍스트가 없습니다.")
                 val t0 = System.nanoTime()
                 job.render()
@@ -106,6 +107,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: java.nio.charset.CharacterCodingException) {
             String(b, charset("MS949"))
         }
+    }
+
+    /** Plays the sample of auto-learning generation [index]. */
+    fun playGeneration(voiceId: String, index: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val bank = AppGraph.voices.bank(voiceId) ?: return@launch
+            val g = bank.generations.getOrNull(index) ?: return@launch
+            val a = bank.generationAudio(g) ?: return@launch
+            val f = File(getApplication<Application>().cacheDir, "gen_play.wav")
+            AudioTools.writeWav(f, a, 24000)
+            withContext(Dispatchers.Main) { Player.stop(); Player.toggle(f) }
+        }
+    }
+
+    /** Use generation [index] (−1 = defaults) for synthesis from now on. */
+    fun useGeneration(voiceId: String, index: Int) {
+        viewModelScope.launch(Dispatchers.IO) { AppGraph.voices.bank(voiceId)?.useGeneration(index); AppGraph.voices.refresh() }
     }
 
     /** Plays a stored segment of a voice (the real recording). */

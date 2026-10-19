@@ -91,8 +91,12 @@ fun JobCard(job: JobState, playing: String?, onGoLibrary: () -> Unit, kinds: Set
                 Text(job.primary + (if (job.etaMs > 0) " · 남은 시간 약 ${formatDuration(job.etaMs)}" else ""))
                 if (job.secondary.isNotEmpty()) Text(job.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
                 if (job.kind == TaskKind.AUTOLEARN && job.scores.isNotEmpty()) {
-                    Text("원본과의 유사도 (점선 = 학습 전)", style = MaterialTheme.typography.labelMedium)
+                    Text("세대별 원본 유사도 점수 (점선 = 학습 전)", style = MaterialTheme.typography.labelMedium)
                     ScoreChart(job.scores, job.baseline)
+                }
+                if (job.kind == TaskKind.AUTOLEARN && job.groups.isNotEmpty()) {
+                    Text("현재 최고 목소리의 특징별 유사도 (약 100가지 기준)", style = MaterialTheme.typography.labelMedium)
+                    job.groups.forEach { (label, v) -> GroupBar(label, v) }
                 }
                 Text("화면을 꺼도 계속됩니다.", style = MaterialTheme.typography.bodySmall)
                 OutlinedButton(onClick = { SynthesisService.cancel(ctx) }) { Text("취소") }
@@ -124,6 +128,15 @@ fun JobCard(job: JobState, playing: String?, onGoLibrary: () -> Unit, kinds: Set
                 TextButton(onClick = { AppGraph.jobs.reset() }) { Text("닫기") }
             }
         }
+    }
+}
+
+@Composable
+fun GroupBar(label: String, value: Double) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = 8.dp).fillMaxWidth(0.32f))
+        LinearProgressIndicator(progress = { value.toFloat().coerceIn(0f, 1f) }, modifier = Modifier.weight(1f))
+        Text(" ${"%.0f".format(value * 100)}%", style = MaterialTheme.typography.bodySmall)
     }
 }
 

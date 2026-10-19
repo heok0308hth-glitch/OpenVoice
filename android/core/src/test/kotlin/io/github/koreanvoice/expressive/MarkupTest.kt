@@ -42,4 +42,14 @@ class MarkupTest {
         val p = Style(Emotion.EXCITED, 1.4f).params(CbParams())
         assertTrue(p.exaggeration > 0.9f && p.cfgWeight < 0.5f)
     }
+
+    @Test
+    fun endingTags() {
+        val r = Markup.parse("[말끝:올림]정말요? [말끝:길게]그래요. [/말끝]끝.")
+        val t = texts(r)
+        assertEquals(2.5, t[0].style.endShift); assertEquals(1.35, t[1].style.endStretch); assertEquals(2.5, t[1].style.endShift)
+        assertEquals(0.0, t[2].style.endShift); assertEquals(1.0, t[2].style.endStretch)
+        assertEquals(-1.5, texts(Markup.parse("[말끝:-1.5]네.")).first().style.endShift)
+        assertTrue(r.warnings.isEmpty())
+    }
 }

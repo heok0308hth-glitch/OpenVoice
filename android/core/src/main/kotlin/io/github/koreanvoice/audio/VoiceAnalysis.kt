@@ -68,7 +68,9 @@ object VoiceAnalysis {
     }
 
     /** YIN F0 tracker (10 ms hop, 40 ms window, 60–500 Hz); 0 = unvoiced. */
-    fun yin(x: FloatArray, sr: Int, fmin: Double = 60.0, fmax: Double = 500.0, threshold: Double = 0.15, hopMs: Int = 10): DoubleArray {
+    /** [aperiodicity] (optional, same length as the result) receives the YIN dip depth per frame (0 = perfectly periodic). */
+    fun yin(x: FloatArray, sr: Int, fmin: Double = 60.0, fmax: Double = 500.0, threshold: Double = 0.15, hopMs: Int = 10,
+            aperiodicity: ((Int, Double) -> Unit)? = null): DoubleArray {
         val w = (0.04 * sr).toInt(); val hop = sr * hopMs / 1000
         val tauMin = (sr / fmax).toInt(); val tauMax = min(w - 1, (sr / fmin).toInt())
         val n = max(0, (x.size - w - tauMax) / hop)
@@ -111,6 +113,7 @@ object VoiceAnalysis {
                 if (abs(den) > 1e-12) t + 0.5 * (a - c) / den else t
             } else t
             out[f] = sr / refined
+            aperiodicity?.invoke(f, cmnd[tauSel])
         }
         return out
     }

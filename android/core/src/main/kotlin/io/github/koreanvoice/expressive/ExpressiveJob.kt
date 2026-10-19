@@ -3,6 +3,7 @@ package io.github.koreanvoice.expressive
 import io.github.koreanvoice.audio.AudioTools
 import io.github.koreanvoice.audio.Dsp
 import io.github.koreanvoice.audio.Mp3Encoder
+import io.github.koreanvoice.audio.Psola
 import io.github.koreanvoice.text.KoreanNormalizer
 import io.github.koreanvoice.text.TextChunker
 import java.io.File
@@ -44,6 +45,8 @@ class ExpressiveJob(
         val useTuning: Boolean = true,
         /** Run T3 and the decoder concurrently (pays off on phones with many big cores). */
         val pipelined: Boolean = false,
+        /** Reproduce the original recordings' microphone colour, room and background (from auto-learning). */
+        val recreateEnvironment: Boolean = false,
     ) {
         fun key() = listOf(base, autoEmotion, emotionRouting, dictionary.toSortedMap(), maxChunkChars, useTuning).toString()
     }
@@ -249,8 +252,13 @@ class ExpressiveJob(
     private fun assemble(sink: (FloatArray) -> Unit) {
         val t = if (opt.useTuning) bank.tuning else VoiceBank.Tuning()
         val bg = opt.background?.let { Dsp.BackgroundMixer(it, SR, opt.backgroundDb) }
+        val env = if (opt.recreateEnvironment) t.env else null
+        val envFir = env?.eq?.takeIf { e -> e.any { kotlin.math.abs(it) > 0.2 } }?.let { Dsp.designEq(it, SR) }
+        val envRoom = env?.let { Dsp.Room.of(it.room) } ?: Dsp.Room.NONE
+        val roomTone = env?.noiseDb?.let { db -> bank.roomTone()?.takeIf { it.size > SR }?.let { Dsp.BackgroundMixer(it, SR, db, 0.0) } }
         val post: (FloatArray) -> FloatArray = { x ->
-            var y = bg?.mix(x) ?: x
+            var y = roomTone?.mix(x) ?: x
+            y = bg?.mix(y) ?: y
             if (opt.mastering) y = Dsp.compress(y, SR, -20.0, 2.5)
             AudioTools.limit(y); y
         }
@@ -270,6 +278,7 @@ class ExpressiveJob(
                     val st = e.style
                     val tempo = st.totalTempo * t.tempo
                     val pitch = st.totalPitch + t.pitch
+                    x = Psola.shapeEndings(x, SR, st.endShift + t.endShift, st.endStretch * t.endStretch)
                     x = Dsp.tempoPitch(x, SR, tempo, pitch)
                     x = Dsp.tilt(x, SR, t.tilt)
                     x = Dsp.tone(x, SR, st.effectiveTone)
@@ -281,6 +290,7 @@ class ExpressiveJob(
                     AudioTools.fade(x, SR)
                     val speechLen = x.size
                     if (t.wet > 0.005) x = Dsp.reverb(x, SR, Dsp.Room.ROOM, t.wet, 0.3)
+                    if (env != null) x = Dsp.applyEnvironment(x, SR, null, envRoom, env.wet, envFir)
                     x = Dsp.state(x, SR, st.state)
                     if (st.room != Dsp.Room.NONE) x = Dsp.reverb(x, SR, st.room, st.wet ?: st.room.defaultWet, 2.5)
                     tl.add(x)

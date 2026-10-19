@@ -46,11 +46,36 @@ class VoiceBank(val dir: File) {
         val xvCorrection: FloatArray? = null,
         val history: List<Double> = emptyList(),
         val iterations: Int = 0,
+        /** Sentence-ending (말끝) shaping: final pitch glide in semitones and lengthening factor. */
+        val endShift: Double = 0.0,
+        val endStretch: Double = 1.0,
+        /** Recording-environment reproduction (applied only when the user enables it). */
+        val env: Environment? = null,
     )
+
+    /** How the original recordings sound as a recording: microphone colour, room and background. */
+    data class Environment(
+        /** EQ correction per LTAS band (dB). */
+        val eq: DoubleArray,
+        val room: String = "NONE",
+        val wet: Double = 0.0,
+        /** Room-tone level relative to the speech level (dB), or null for no background. */
+        val noiseDb: Double? = null,
+        /** Environment similarity (0..1) without / with reproduction, measured during auto-learning. */
+        val before: Double = Double.NaN,
+        val after: Double = Double.NaN,
+    )
+
+    /** One auto-learning round's best voice ("generation"), kept so it can be listened to and chosen. */
+    data class Generation(val round: Int, val tuning: Tuning, val score: Double, val criteria: Double, val ecapa: Double, val sample: String)
 
     var name: String = dir.name
     val segments = ArrayList<Segment>()
     var tuning: Tuning = Tuning()
+    /** Generations of the latest auto-learning run. */
+    val generations = ArrayList<Generation>()
+    /** Index into [generations] currently in use (-1 = the tuning was not taken from a generation list). */
+    var selectedGeneration: Int = -1
     /** Number of learning sessions (additions + auto-learning runs). */
     var generation: Int = 0
     val createdAt: Long
@@ -69,6 +94,11 @@ class VoiceBank(val dir: File) {
                     VoiceAnalysis.Profile.fromList(doubles(s.getJSONArray("profile")))))
             }
             o.optJSONObject("tuning")?.let { tuning = tuningFrom(it) }
+            o.optJSONArray("generations")?.let { a ->
+                for (i in 0 until a.length()) { val g = a.getJSONObject(i)
+                    generations.add(Generation(g.getInt("round"), tuningFrom(g.getJSONObject("tuning")), g.optDouble("score"), g.optDouble("criteria"), g.optDouble("ecapa"), g.getString("sample"))) }
+            }
+            selectedGeneration = o.optInt("selectedGeneration", -1)
         } else createdAt = System.currentTimeMillis()
     }
 
@@ -85,6 +115,10 @@ class VoiceBank(val dir: File) {
             })
         })
         o.put("tuning", tuningJson(tuning))
+        o.put("generations", JSONArray().apply { for (g in generations) put(JSONObject().apply {
+            put("round", g.round); put("tuning", tuningJson(g.tuning)); put("score", finite(g.score)); put("criteria", finite(g.criteria))
+            put("ecapa", finite(g.ecapa)); put("sample", g.sample) }) })
+        o.put("selectedGeneration", selectedGeneration)
         val tmp = File(dir, "bank.json.tmp"); tmp.writeText(o.toString()); tmp.renameTo(File(dir, "bank.json"))
     }
 
@@ -100,11 +134,15 @@ class VoiceBank(val dir: File) {
         val candidates = ArrayList<Candidate>()
         var pieces = 0; private set
         var noisy = 0; private set
+        /** Background between words (room tone), for recording-environment reproduction. */
+        val roomTone = ArrayList<FloatArray>()
+        val roomToneSamples get() = roomTone.sumOf { it.size }
 
         /** Add one window of audio (any sample rate). */
         fun add(pcm: FloatArray, sampleRate: Int, cancel: () -> Boolean = { false }, onPiece: (Int) -> Unit = {}) {
             var x = if (sampleRate == SR) pcm.copyOf() else Resampler.resample(pcm, sampleRate, SR)
             x = AudioTools.highPass(x, SR, 60.0)
+            if (roomToneSamples < ROOM_TONE_MAX * SR) roomTone.addAll(extractRoomTone(x))
             for (p in cut(x)) {
                 if (cancel()) throw InterruptedException()
                 pieces++; onPiece(pieces)
@@ -173,6 +211,7 @@ class VoiceBank(val dir: File) {
             if (tuning.promptSegment != null && segments.none { it.id == tuning.promptSegment }) tuning = tuning.copy(promptSegment = null)
         }
         if (kept > 0) generation++
+        if (kept > 0 && c.roomToneSamples > SR) appendRoomTone(c.roomTone)
         save()
         progress(1f, "완료")
         return IngestReport(c.pieces, kept, c.noisy, otherSpk, keptSec, msgs)
@@ -206,6 +245,52 @@ class VoiceBank(val dir: File) {
         }
         flush()
         return out
+    }
+
+    // ------------------------------------------------------------------ auto-learning results
+
+    /** Applies an auto-learning result and keeps its generations (with listenable samples). */
+    fun applyAutoLearning(res: AutoTuner.Result) {
+        dir.listFiles { f -> f.name.startsWith("gen_") }?.forEach { it.delete() }
+        generations.clear()
+        for (g in res.generations) { AudioTools.writePcm16(File(dir, g.generation.sample), g.audio); generations.add(g.generation) }
+        tuning = res.tuning
+        selectedGeneration = if (res.accepted) generations.lastIndex else -1
+        generation++
+        save()
+    }
+
+    /** Switch to generation [i] (or the defaults for i = −1), keeping learning history and environment. */
+    fun useGeneration(i: Int) {
+        val keep = tuning
+        tuning = if (i in generations.indices) generations[i].tuning.copy(history = keep.history, iterations = keep.iterations, env = keep.env)
+        else Tuning(history = keep.history, iterations = keep.iterations, env = keep.env)
+        selectedGeneration = i
+        save()
+    }
+
+    fun generationAudio(g: Generation): FloatArray? = File(dir, g.sample).takeIf { it.exists() }?.let { AudioTools.readPcm16(it) }
+
+    // ------------------------------------------------------------------ room tone
+
+    val roomToneFile get() = File(dir, "roomtone.pcm")
+    fun roomTone(): FloatArray? = if (roomToneFile.exists()) AudioTools.readPcm16(roomToneFile) else null
+
+    /** Add background pieces (joined with short cross-fades), keeping at most [ROOM_TONE_MAX] seconds. */
+    fun appendRoomTone(pieces: List<FloatArray>) {
+        val all = ArrayList<FloatArray>(); roomTone()?.let { all.add(it) }; all.addAll(pieces)
+        val xf = SR / 200
+        var acc = FloatArray(0)
+        for (p in all) {
+            if (acc.isEmpty()) { acc = p.copyOf(); continue }
+            val n = minOf(xf, p.size, acc.size)
+            val joined = acc.copyOf(acc.size + p.size - n)
+            for (k in 0 until n) { val w = k.toFloat() / n; joined[acc.size - n + k] = acc[acc.size - n + k] * (1 - w) + p[k] * w }
+            System.arraycopy(p, n, joined, acc.size, p.size - n)
+            acc = joined
+            if (acc.size >= ROOM_TONE_MAX * SR) break
+        }
+        AudioTools.writePcm16(roomToneFile, acc.copyOf(minOf(acc.size, ROOM_TONE_MAX * SR)))
     }
 
     // ------------------------------------------------------------------ composing the voice
@@ -285,6 +370,30 @@ class VoiceBank(val dir: File) {
         const val MAX_SEGMENTS = 60
         /** CAMPPlus cosine above which two segments are treated as the same speaker. */
         const val SAME_SPEAKER = 0.5
+        const val ROOM_TONE_MAX = 20
+
+        /**
+         * Quiet stretches between speech (20 ms frames within 4 dB of the noise floor and ≥ 100 ms away from
+         * speech), at least 200 ms long — the recording's own background.
+         */
+        fun extractRoomTone(x: FloatArray): List<FloatArray> {
+            val fr = SR / 50
+            val db = AudioTools.frameDb(x, fr)
+            if (db.size < 20) return emptyList()
+            val sorted = db.sorted(); val floor = sorted[sorted.size / 10]; val speech = sorted[(sorted.size * 0.9).toInt()]
+            if (speech - floor < 15) return emptyList()           // no clear speech/background contrast
+            val quiet = BooleanArray(db.size) { db[it] < floor + 4 }
+            val ok = BooleanArray(db.size) { i -> (maxOf(0, i - 5)..minOf(db.size - 1, i + 5)).all { quiet[it] } }
+            val out = ArrayList<FloatArray>()
+            var i = 0
+            while (i < ok.size) {
+                if (!ok[i]) { i++; continue }
+                var j = i; while (j < ok.size && ok[j]) j++
+                if (j - i >= 10) out.add(x.copyOfRange(i * fr, minOf(x.size, j * fr)))
+                i = j
+            }
+            return out
+        }
 
         fun cos(a: FloatArray, b: FloatArray): Double {
             var d = 0.0; var na = 0.0; var nb = 0.0
@@ -303,8 +412,15 @@ class VoiceBank(val dir: File) {
             t.promptSegment?.let { put("prompt", it) }
             t.veCorrection?.let { put("veCorr", JSONArray(it.map { v -> v.toDouble() })) }
             t.xvCorrection?.let { put("xvCorr", JSONArray(it.map { v -> v.toDouble() })) }
-            put("history", JSONArray(t.history)); put("iterations", t.iterations)
+            put("history", JSONArray(t.history.map { finite(it) })); put("iterations", t.iterations)
+            put("endShift", t.endShift); put("endStretch", t.endStretch)
+            t.env?.let { e -> put("env", JSONObject().apply {
+                put("eq", JSONArray(e.eq.map { finite(it) })); put("room", e.room); put("wet", e.wet); e.noiseDb?.let { put("noiseDb", it) }
+                put("before", finite(e.before)); put("after", finite(e.after)) }) }
         }
+
+        /** Android's org.json rejects NaN/Infinity. */
+        fun finite(v: Double) = if (v.isFinite()) v else 0.0
 
         fun tuningFrom(o: JSONObject) = VoiceBank.Tuning(
             CbParams(exaggeration = o.optDouble("exaggeration", 0.5).toFloat(), cfgWeight = o.optDouble("cfg", 0.5).toFloat(),
@@ -312,6 +428,9 @@ class VoiceBank(val dir: File) {
             o.optDouble("pitch", 0.0), o.optDouble("tilt", 0.0), o.optDouble("tempo", 1.0), o.optDouble("wet", 0.0), o.optDouble("veBlend", 0.0),
             if (o.has("prompt")) o.getString("prompt") else null,
             o.optJSONArray("veCorr")?.let { floats(it) }, o.optJSONArray("xvCorr")?.let { floats(it) },
-            o.optJSONArray("history")?.let { doubles(it) } ?: emptyList(), o.optInt("iterations", 0))
+            o.optJSONArray("history")?.let { doubles(it) } ?: emptyList(), o.optInt("iterations", 0),
+            o.optDouble("endShift", 0.0), o.optDouble("endStretch", 1.0),
+            o.optJSONObject("env")?.let { e -> Environment(doubles(e.getJSONArray("eq")).toDoubleArray(), e.optString("room", "NONE"), e.optDouble("wet", 0.0),
+                if (e.has("noiseDb")) e.getDouble("noiseDb") else null, e.optDouble("before", Double.NaN), e.optDouble("after", Double.NaN)) })
     }
 }

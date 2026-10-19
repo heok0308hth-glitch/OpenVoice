@@ -44,6 +44,9 @@ data class Style(
     val state: Dsp.State = Dsp.State.NORMAL,
     val tone: Dsp.Tone? = null,
     val volumeDb: Double = 0.0,
+    /** Sentence-ending (말끝) shaping: final pitch glide (semitones) and lengthening. */
+    val endShift: Double = 0.0,
+    val endStretch: Double = 1.0,
 ) {
     fun params(base: CbParams): CbParams {
         val e = emotion; val n = Emotion.NEUTRAL; val k = intensity
@@ -59,7 +62,7 @@ data class Style(
     val totalTempo get() = tempo * (1 + (emotion.tempo - 1) * intensity)
     val effectiveTone get() = tone ?: emotion.tone
     /** Key used to group chunks that can be synthesised together. */
-    val synthKey get() = listOf(emotion, intensity, totalPitch, totalTempo, room, wet, state, effectiveTone, volumeDb).joinToString("|")
+    val synthKey get() = listOf(emotion, intensity, totalPitch, totalTempo, room, wet, state, effectiveTone, volumeDb, endShift, endStretch).joinToString("|")
 }
 
 /**
@@ -71,6 +74,7 @@ data class Style(
  *  [울림:방|스튜디오|욕실|무대|홀|성당|동굴|없음] [울림:홀:0.4]
  *  [상태:전화|라디오|확성기|멀리|가까이|속삭임|물속|로봇|기본]   [속삭임]  [전화] …
  *  [톤:밝게|따뜻하게|선명하게|어둡게|기본]
+ *  [말끝:올림|살짝올림|내림|살짝내림|길게|짧게|기본] [말끝:+1.5]   sentence endings (pitch glide / lengthening)
  *  [쉼:0.8]  (pause in seconds)   [쉼]  (0.6 s)
  *  [/감정] [/속도] … resets one setting,  [기본] resets everything
  *  {표기|읽는법}  reads the text as written after the bar, e.g. {NASA|나사}, {1등|일 등}
@@ -152,6 +156,7 @@ object Markup {
                 "상태" -> st.copy(state = base.state)
                 "톤" -> st.copy(tone = base.tone)
                 "볼륨" -> st.copy(volumeDb = base.volumeDb)
+                "말끝" -> st.copy(endShift = base.endShift, endStretch = base.endStretch)
                 else -> Emotion.of(body.substring(1).trim())?.let { st.copy(emotion = base.emotion, intensity = base.intensity, explicitEmotion = false) }
                     ?: Dsp.State.of(body.substring(1).trim())?.let { st.copy(state = base.state) }
             }
@@ -175,6 +180,12 @@ object Markup {
             "상태", "state" -> Dsp.State.of(v)?.let { st.copy(state = it) }
             "톤", "tone" -> Dsp.Tone.of(v)?.let { st.copy(tone = it) }
             "볼륨", "volume" -> v.removePrefix("+").removeSuffix("dB").toDoubleOrNull()?.let { st.copy(volumeDb = it.coerceIn(-24.0, 12.0)) }
+            "말끝", "ending" -> when (v) {
+                "올림" -> st.copy(endShift = 2.5); "살짝올림" -> st.copy(endShift = 1.2); "내림" -> st.copy(endShift = -2.5)
+                "살짝내림" -> st.copy(endShift = -1.2); "길게" -> st.copy(endStretch = 1.35); "짧게" -> st.copy(endStretch = 0.85)
+                "기본" -> st.copy(endShift = base.endShift, endStretch = base.endStretch)
+                else -> v.removePrefix("+").toDoubleOrNull()?.let { st.copy(endShift = it.coerceIn(-6.0, 6.0)) }
+            }
             else -> null
         }
     }

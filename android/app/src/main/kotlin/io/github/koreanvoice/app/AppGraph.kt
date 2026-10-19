@@ -96,6 +96,7 @@ data class DeliverySettings(
     val mastering: Boolean = false,
     val pauseScale: Float = 1f,
     val useTuning: Boolean = true,
+    val recreateEnv: Boolean = false,
 ) {
     fun style() = Style(
         emotion = emotion, intensity = intensity, explicitEmotion = !autoEmotion && emotion != Emotion.NEUTRAL,
@@ -107,7 +108,7 @@ data class DeliverySettings(
         put("emotion", emotion.name); put("intensity", intensity.toDouble()); put("auto", autoEmotion); put("routing", emotionRouting)
         put("tempo", tempo.toDouble()); put("pitch", pitch.toDouble()); put("room", room.name); put("wet", wet.toDouble())
         put("state", state.name); put("tone", tone.name); put("bg", background); put("bgDb", backgroundDb.toDouble())
-        put("master", mastering); put("pause", pauseScale.toDouble()); put("tuning", useTuning)
+        put("master", mastering); put("pause", pauseScale.toDouble()); put("tuning", useTuning); put("env", recreateEnv)
     }
 
     companion object {
@@ -118,7 +119,7 @@ data class DeliverySettings(
             runCatching { Dsp.State.valueOf(o.getString("state")) }.getOrDefault(Dsp.State.NORMAL),
             runCatching { Dsp.Tone.valueOf(o.getString("tone")) }.getOrDefault(Dsp.Tone.NORMAL),
             o.optString("bg", "없음"), o.optDouble("bgDb", -22.0).toFloat(), o.optBoolean("master", false), o.optDouble("pause", 1.0).toFloat(),
-            o.optBoolean("tuning", true))
+            o.optBoolean("tuning", true), o.optBoolean("env", false))
     }
 }
 
@@ -169,7 +170,9 @@ sealed interface JobState {
     data object Idle : JobState
     data class Preparing(val kind: TaskKind, val message: String) : JobState
     data class Running(val kind: TaskKind, val title: String, val fraction: Float, val primary: String, val secondary: String = "",
-                       val etaMs: Long = -1, val scores: List<Double> = emptyList(), val baseline: Double = Double.NaN) : JobState
+                       val etaMs: Long = -1, val scores: List<Double> = emptyList(), val baseline: Double = Double.NaN,
+                       /** Auto-learning: similarity per criteria group (label → 0..1) of the current best voice. */
+                       val groups: List<Pair<String, Double>> = emptyList()) : JobState
     data class Done(val kind: TaskKind, val title: String, val summary: String, val file: File? = null, val voiceId: String? = null) : JobState
     data class Failed(val kind: TaskKind, val message: String) : JobState
     data class Cancelled(val kind: TaskKind) : JobState

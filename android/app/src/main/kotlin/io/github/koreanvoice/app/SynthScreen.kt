@@ -165,6 +165,8 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
                     TagMenu("울림", Dsp.Room.entries.filter { it != Dsp.Room.NONE }.map { "[울림:${it.label}]" to it.label } + listOf("[울림:없음]" to "없음"), ::insert)
                     TagMenu("상태", Dsp.State.entries.filter { it != Dsp.State.NORMAL }.map { "[${it.label}]" to it.label } + listOf("[/상태]" to "원래대로"), ::insert)
                     TagMenu("톤", Dsp.Tone.entries.map { "[톤:${it.label}]" to it.label }, ::insert)
+                    TagMenu("말끝", listOf("[말끝:올림]" to "끝을 올려서", "[말끝:살짝올림]" to "살짝 올려서", "[말끝:내림]" to "끝을 내려서",
+                        "[말끝:살짝내림]" to "살짝 내려서", "[말끝:길게]" to "끝을 길게", "[말끝:짧게]" to "끝을 짧게", "[/말끝]" to "원래대로"), ::insert)
                     TagMenu("소리(실험)", Markup.NONVERBAL.keys.map { "[$it]" to it }, ::insert)
                     AssistChip(onClick = { insert("{표기|읽는법}") }, label = { Text("읽는법") })
                     AssistChip(onClick = { insert("[기본]") }, label = { Text("초기화") })
@@ -190,7 +192,8 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
                     LabeledSlider("감정 강도", d.intensity, 0.5f..1.6f, "%.1f") { upd(d.copy(intensity = it)) }
                     LabeledSwitch("문장별 자동 감정", "대사(따옴표)·문장 부호·감정 단어를 보고 문장마다 감정을 자동으로 정합니다. 태그로 지정한 부분은 그대로 둡니다.", d.autoEmotion) { upd(d.copy(autoEmotion = it)) }
                     LabeledSwitch("감정에 맞는 원본 구간 사용", "학습된 음성 중 감정에 어울리는 구간(활기찬/차분한)을 골라 참조합니다.", d.emotionRouting) { upd(d.copy(emotionRouting = it)) }
-                    LabeledSwitch("자동 학습 결과 적용", "자동 학습으로 찾은 음높이·음색·울림 보정을 적용합니다.", d.useTuning) { upd(d.copy(useTuning = it)) }
+                    LabeledSwitch("자동 학습 결과 적용", "자동 학습으로 찾은 말투·음색 보정·말끝 특징을 적용합니다.", d.useTuning) { upd(d.copy(useTuning = it)) }
+                    LabeledSwitch("원본 녹음 환경 재현", "자동 학습이 분석한 원본의 울림·마이크 색깔·배경 잡음을 입혀 원본 녹음처럼 들리게 합니다(자동 학습 후 사용 가능). 울림이 더해지는 만큼 목소리 자체의 선명도는 약간 줄 수 있습니다.", d.recreateEnv) { upd(d.copy(recreateEnv = it)) }
                     LabeledSlider("말하기 속도", d.tempo, 0.6f..1.6f, "%.2fx") { upd(d.copy(tempo = it)) }
                     LabeledSlider("음높이 (반음)", d.pitch, -6f..6f, "%+.1f") { upd(d.copy(pitch = it)) }
                     Text("울림 (공간)", style = MaterialTheme.typography.labelLarge)
@@ -291,8 +294,9 @@ private const val MARKUP_HELP = """• 감정: [기쁨] [슬픔] [화남] [차�
 • 울림: [울림:방|스튜디오|욕실|무대|홀|성당|동굴|없음], 양 지정 [울림:홀:0.4]
 • 상태: [전화] [라디오] [확성기] [멀리] [가까이] [속삭임] [물속] [로봇]
 • 톤: [톤:밝게|따뜻하게|선명하게|어둡게]
+• 말끝: [말끝:올림] [말끝:살짝올림] [말끝:내림] [말끝:길게] [말끝:짧게] [말끝:+1.5] (문장 끝 음높이·길이)
 • 읽는 법: {NASA|나사}, {3.1절|삼일절}
-• 되돌리기: [/감정] [/속도] [/상태] … 또는 [기본]
+• 되돌리기: [/감정] [/속도] [/상태] [/말끝] … 또는 [기본]
 • 소리(실험적): [웃음] [한숨] [헛기침] [숨] [흐느낌] — 모델이 항상 소리를 내지는 않습니다."""
 
 private fun estimateLabel(chars: Int): String {

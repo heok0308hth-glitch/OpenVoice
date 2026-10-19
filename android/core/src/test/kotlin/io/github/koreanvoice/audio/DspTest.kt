@@ -74,6 +74,22 @@ class DspTest {
     }
 }
 
+class EqTest {
+    @Test
+    fun designedEqFollowsBandCurve() {
+        val sr = 24000
+        val rnd = java.util.Random(3)
+        val noise = FloatArray(sr * 4) { (rnd.nextGaussian() * 0.1).toFloat() }
+        val curve = DoubleArray(VoiceAnalysis.LTAS_BANDS) { if (it in 14..17) 6.0 else 0.0 }
+        val y = Dsp.fir(noise, Dsp.designEq(curve, sr))
+        val a = VoiceAnalysis.ltas(noise, sr); val b = VoiceAnalysis.ltas(y, sr)
+        val diff = DoubleArray(a.size) { b[it] - a[it] }
+        val boost = (15..16).map { diff[it] }.average() - (0..8).map { diff[it] }.average()
+        println("eq boost in target bands ${"%.2f".format(boost)} dB, length ${y.size == noise.size}")
+        kotlin.test.assertTrue(boost in 4.5..7.5 && y.size == noise.size)
+    }
+}
+
 class PsolaTest {
     private val sr = 24000
 

@@ -19,6 +19,7 @@ import io.github.koreanvoice.audio.AudioTools
 import io.github.koreanvoice.audio.Dsp
 import io.github.koreanvoice.audio.Mp3Encoder
 import io.github.koreanvoice.audio.Resampler
+import io.github.koreanvoice.audio.VoiceCriteria
 import io.github.koreanvoice.expressive.AutoTuner
 import io.github.koreanvoice.expressive.ExpressiveJob
 import io.github.koreanvoice.expressive.VoiceBank
@@ -125,7 +126,7 @@ class SynthesisService : Service() {
         AppGraph.jobs.update(JobState.Preparing(TaskKind.SYNTHESIS, "텍스트 분석 중…"))
         val job = ExpressiveJob(engine, bank, AppGraph.jobCacheDir, req.text, ExpressiveJob.Options(
             base = d.style(), autoEmotion = d.autoEmotion, emotionRouting = d.emotionRouting, dictionary = req.dictionary,
-            pauseScale = d.pauseScale, background = bed, backgroundDb = d.backgroundDb.toDouble(), mastering = d.mastering, useTuning = d.useTuning, pipelined = AppGraph.pipelined()))
+            pauseScale = d.pauseScale, background = bed, backgroundDb = d.backgroundDb.toDouble(), mastering = d.mastering, useTuning = d.useTuning, pipelined = AppGraph.pipelined(), recreateEnvironment = d.recreateEnv))
         if (job.chunks.isEmpty()) error("읽을 수 있는 한국어 텍스트가 없습니다.")
         job.render(isCancelled = { cancelled }) { p ->
             report(JobState.Running(TaskKind.SYNTHESIS, req.title, if (p.total == 0) 0f else p.done.toFloat() / p.total,
@@ -201,21 +202,28 @@ class SynthesisService : Service() {
             val el = System.currentTimeMillis() - t0
             val eta = if (p.done > 1) (el.toDouble() / p.done * (p.total - p.done)).toLong() else -1
             report(JobState.Running(TaskKind.AUTOLEARN, req.title, p.done.toFloat() / p.total,
-                "${p.round}/${p.rounds}회차 · 시도 ${p.done}/${p.total}", p.message, eta, history.toList() + listOf(p.best).filter { !it.isNaN() }, p.baseline))
+                "${p.round}/${p.rounds}세대 · 시도 ${p.done}/${p.total}", p.message, eta, history.toList() + listOf(p.best).filter { !it.isNaN() }, p.baseline,
+                p.groups.filter { !it.value.isNaN() }.map { it.key.label to it.value }))
         }, cancel = { cancelled })
-        bank.tuning = res.tuning; bank.generation++; bank.save()
-        val (vt, vb) = tuner.verified ?: (Double.NaN to Double.NaN)
-        val g = res.best.gen
+        bank.applyAutoLearning(res)
+        val (vt, vb) = res.heldOut; val (ct, cb) = res.heldOutCriteria
+        val g = res.best.gen; val v = res.best.v
+        fun pct(x: Double) = "${"%.0f".format(x * 100)}%"
         val summary = buildString {
-            append("${req.modeLabel} 자동 학습 완료 · 시도 ${res.evaluated}가지 · ${formatDuration(System.currentTimeMillis() - t0)}\n")
-            append("탐색 점수: 시작 ${"%.3f".format(res.baseline)} → 최고 ${"%.3f".format(res.roundBest.maxOrNull() ?: res.baseline)}\n")
+            append("${req.modeLabel} 자동 학습 완료 · ${res.generations.size}세대 · 시도 ${res.evaluated}가지 · ${formatDuration(System.currentTimeMillis() - t0)}\n")
             if (res.accepted) {
-                append("새 문장 검증(독립 화자 인식 ECAPA): 기본 ${"%.3f".format(vb)} → 학습 ${"%.3f".format(vt)} — 적용했습니다.\n")
-                append("찾은 설정: 감정 ${"%.2f".format(g.ex)}, 속도감 ${"%.2f".format(g.cfg)}, 다양성 ${"%.2f".format(g.temp)}, 음색 혼합 ${"%.2f".format(g.blend)}, 음색 보정 ${"%.1f".format(res.best.v.xs)}, 기울기 ${"%+.1f".format(res.best.v.tilt)}dB")
+                append("새 문장 검증: 화자 유사도(ECAPA) ${"%.3f".format(vb)} → ${"%.3f".format(vt)}, ${VoiceCriteria.SIZE}가지 특징 유사도 ${pct(cb)} → ${pct(ct)} — 마지막 세대를 적용했습니다.\n")
+                append("찾은 설정: 감정 ${"%.2f".format(g.ex)}, 속도감 ${"%.2f".format(g.cfg)}, 다양성 ${"%.2f".format(g.temp)}, 음색 혼합 ${"%.2f".format(g.blend)}, " +
+                    "음색 보정 ${"%.1f".format(v.xs)}, 기울기 ${"%+.1f".format(v.tilt)}dB, 말끝 ${"%+.1f".format(v.endShift)}반음·길이 ${"%.2f".format(v.endStretch)}배\n")
             } else {
                 append("새 문장 검증에서 기본 설정보다 분명히 나은 방식을 찾지 못해 기본 설정을 유지했습니다" +
-                    (if (!vt.isNaN()) " (기본 ${"%.3f".format(vb)}, 후보 ${"%.3f".format(vt)})." else ".") +
-                    "\n자료(음성)를 더 추가하면 더 좋아질 수 있습니다.")
+                    (if (!vt.isNaN()) " (화자 유사도 기본 ${"%.3f".format(vb)} / 후보 ${"%.3f".format(vt)})." else ".") +
+                    " 목소리 화면에서 각 세대를 직접 들어 보고 고를 수 있습니다.\n")
+            }
+            append("특징별 유사도(기본 → 결과): " + res.groupsBefore.keys.joinToString(", ") { k ->
+                "${k.label} ${pct(res.groupsBefore[k] ?: Double.NaN)}→${pct(res.groupsAfter[k] ?: Double.NaN)}" }.replace("NaN%", "-"))
+            res.tuning.env?.let { e ->
+                if (e.after > e.before + 0.01) append("\n원본 녹음 환경 재현 준비됨(울림·마이크 색깔${if (e.noiseDb != null) "·배경 잡음" else ""}): 환경 유사도 ${pct(e.before)} → ${pct(e.after)}. 생성 화면의 '원본 녹음 환경 재현'을 켜면 적용됩니다.")
             }
         }
         return JobState.Done(TaskKind.AUTOLEARN, req.title, summary, voiceId = req.voiceId)

@@ -103,6 +103,7 @@ fun VoicesScreen(vm: MainViewModel, modifier: Modifier, onGoLibrary: () -> Unit)
                             Text("최근 자동 학습: ${"%.3f".format(v.scoreHistory.first())} → ${"%.3f".format(v.scoreHistory.maxOrNull() ?: 0.0)}", style = MaterialTheme.typography.bodySmall)
                             ScoreChart(v.scoreHistory.drop(1), v.scoreHistory.first())
                         }
+                        if (v.generations.isNotEmpty()) GenerationList(vm, v, playing)
                         if (v.seconds in 0.1..15.0) Text("• 음성이 짧습니다. 20초~2분 분량을 더 넣으면 더 닮아집니다.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton(enabled = !busy && preview !is MainViewModel.PreviewState.Working && v.segments > 0, onClick = { vm.testVoice(v.id) }) {
@@ -231,9 +232,11 @@ private fun AutoLearnDialog(v: VoiceInfo, onClose: () -> Unit) {
     AlertDialog(onDismissRequest = onClose, title = { Text("자동 학습: ${v.name}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("학습된 목소리로 감정 세기·말 속도감·억양 변화·참조 구간·음색 혼합·음색 보정 세기·음색 기울기를 매번 다르게 바꿔 가며 말해 보고, " +
-                    "세 가지 화자 인식 모델(합성에 쓰이지 않는 독립 판정 모델 ECAPA 중심)과 음높이·억양·강세·리듬·스펙트럼 분석으로 원본과 가장 닮은 방식을 찾습니다. " +
-                    "회차가 끝날 때마다 가장 닮은 결과들과 원본의 차이를 목소리 보정값으로 되먹여(재학습) 다음 회차는 그 주변을 더 촘촘히 탐색합니다. " +
+                Text("학습된 목소리로 감정 세기·말 속도감·억양 변화·참조 구간(말투)·음색 혼합·음색 보정·음색 기울기·말끝 높낮이·말끝 길이를 매번 다르게 바꿔 가며 말해 보고, " +
+                    "화자 인식 모델 3개(합성에 쓰이지 않는 독립 판정 모델 ECAPA 중심)와 원본의 특징 약 100가지(음색·음높이·말끝·리듬과 말투·강세·음질·분위기·울림과 배경)를 " +
+                    "원본이 평소 보이는 변화 폭과 비교해 가장 닮은 방식을 찾습니다. " +
+                    "회차마다 가장 닮은 목소리를 새 세대로 저장하고, 원본과의 차이를 되먹여(재학습) 다음 세대는 그 주변을 더 촘촘히 탐색합니다. " +
+                    "끝으로 원본의 녹음 환경(울림·마이크 색깔·배경 잡음)도 분석해 둡니다. " +
                     "마지막에 탐색에 쓰지 않은 새 문장으로 다시 검증해, 분명히 나아진 경우에만 적용합니다(아니면 기본값 유지).", style = MaterialTheme.typography.bodySmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     modes.forEachIndexed { i, m -> FilterChip(selected = mode == i, onClick = { mode = i }, label = { Text(m.first) }) }
@@ -254,6 +257,27 @@ private fun AutoLearnDialog(v: VoiceInfo, onClose: () -> Unit) {
             }) { Text("시작") }
         },
         dismissButton = { TextButton(onClick = onClose) { Text("취소") } })
+}
+
+/** Auto-learning generations: listen to each and choose which one the voice uses. */
+@Composable
+private fun GenerationList(vm: MainViewModel, v: VoiceInfo, playing: String?) {
+    Text("자동 학습 세대 (각 세대는 이전 세대에서 가장 닮은 목소리를 다시 학습한 결과)", style = MaterialTheme.typography.labelMedium)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        FilterChip(selected = v.selectedGeneration == -1, onClick = { vm.useGeneration(v.id, -1) }, label = { Text("기본") })
+        Spacer(Modifier.width(4.dp))
+        Text(if (v.selectedGeneration == -1) "사용 중" else "", style = MaterialTheme.typography.bodySmall)
+    }
+    v.generations.forEachIndexed { i, (round, score, crit) ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(selected = v.selectedGeneration == i, onClick = { vm.useGeneration(v.id, i) }, label = { Text("${round}세대") })
+            Text("  점수 ${"%.3f".format(score)} · 특징 유사도 ${"%.0f".format(crit * 100)}%" + if (v.selectedGeneration == i) " · 사용 중" else "",
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            IconButton(onClick = { vm.playGeneration(v.id, i) }) { Icon(Icons.Filled.PlayArrow, "${round}세대 듣기") }
+        }
+    }
+    if (v.hasEnvironment) Text("원본 녹음 환경(울림·마이크 색깔${if (v.roomToneSec > 1) "·배경" else ""}) 분석됨 — 생성 화면에서 '원본 녹음 환경 재현'을 켤 수 있습니다.",
+        style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable

@@ -18,6 +18,11 @@ data class VoiceInfo(
     val generation: Int,
     val autoLearnRuns: Int,
     val scoreHistory: List<Double>,
+    /** Auto-learning generations: (round, search score, criteria similarity). */
+    val generations: List<Triple<Int, Double, Double>> = emptyList(),
+    val selectedGeneration: Int = -1,
+    val hasEnvironment: Boolean = false,
+    val roomToneSec: Double = 0.0,
 )
 
 /** Learned voices, each a [VoiceBank] directory under files/voices2/. */
@@ -36,7 +41,9 @@ class VoiceRepository(context: Context) {
     }
 
     private fun info(id: String, b: VoiceBank) = VoiceInfo(id, b.name, b.createdAt, b.totalSeconds, b.segments.size,
-        b.segments.map { it.source }.distinct(), b.generation, b.tuning.iterations, b.tuning.history)
+        b.segments.map { it.source }.distinct(), b.generation, b.tuning.iterations, b.tuning.history,
+        b.generations.map { Triple(it.round, it.score, it.criteria) }, b.selectedGeneration, b.tuning.env != null,
+        if (b.roomToneFile.exists()) b.roomToneFile.length() / 2.0 / 24000 else 0.0)
 
     private fun load(): List<VoiceInfo> = root.listFiles { f -> f.isDirectory && File(f, "bank.json").exists() }.orEmpty()
         .mapNotNull { d -> runCatching { info(d.name, bank(d.name)!!) }.getOrNull() }
