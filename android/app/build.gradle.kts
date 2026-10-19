@@ -122,6 +122,6 @@ val joinModelParts by tasks.registering {
 }
 android.sourceSets.getByName("full").assets.srcDir(modelAssetsDir)
 tasks.configureEach {
-    if (name.startsWith("mergeFull") && name.endsWith("Assets")) dependsOn(joinModelParts)
-    if (name.startsWith("generateFull") && name.endsWith("LintModel")) dependsOn(joinModelParts)
+    // every task of the "full" variants that may read the generated assets
+    if (name.contains("Full")) dependsOn(joinModelParts)
 }
