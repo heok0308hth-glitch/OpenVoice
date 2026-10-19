@@ -15,6 +15,8 @@ dependencies {
     // artifact is only used for compiling and for the JVM tests.
     compileOnly("com.microsoft.onnxruntime:onnxruntime:$ortVersion")
     implementation("de.sciss:jump3r:1.0.5")
+    // org.json is part of the Android platform; the desktop artifact is only for compiling / JVM tests
+    compileOnly("org.json:json:20250107")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     testImplementation("com.microsoft.onnxruntime:onnxruntime:$ortVersion")
     testImplementation(kotlin("test"))
@@ -29,4 +31,5 @@ tasks.test {
     systemProperty("modelDir", System.getProperty("modelDir") ?: "")
     systemProperty("goldenDir", System.getProperty("goldenDir") ?: "")
     systemProperty("outDir", System.getProperty("outDir") ?: "")
+    for (k in listOf("cbModelDir", "cbGoldenDir", "krefDir")) systemProperty(k, System.getProperty(k) ?: "")
 }

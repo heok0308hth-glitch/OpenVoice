@@ -15,7 +15,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.LinearProgressIndicator
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,28 +45,46 @@ fun AboutScreen(modifier: Modifier) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("한국어 보이스클론 ${BuildConfig.VERSION_NAME}", fontWeight = FontWeight.Bold)
-                Text("OpenVoice V2(MyShell, MIT)의 음색 변환기와 MeloTTS-Korean(MIT)을 기기 안에서 실행하는 비공식 앱입니다. " +
-                    "유료 API나 서버를 사용하지 않으며, 텍스트·음성 샘플은 기기 밖으로 전송되지 않습니다.")
+                Text("Resemble AI의 Chatterbox Multilingual(MIT, 한국어 지원·감정 조절) 모델을 휴대폰용으로 변환·압축해 기기 안에서 실행하는 비공식 앱입니다. " +
+                    "유료 API나 서버를 사용하지 않으며, 텍스트·음성·영상 자료는 기기 밖으로 전송되지 않습니다.")
             }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("이 기기", fontWeight = FontWeight.Bold)
                 Text("${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} · CPU ${Runtime.getRuntime().availableProcessors()}코어 · RAM ${"%.1f".format(ramGb)}GB")
-                Text(if (ramGb < 3.5) "⚠ RAM이 4GB 미만이면 메모리 부족이 생길 수 있습니다. 다른 앱을 닫고 ‘절전’ 모드를 사용하세요."
-                    else "권장 사양(RAM 4GB 이상, 64비트 ARM)을 충족합니다.", style = MaterialTheme.typography.bodySmall)
+                Text(if (ramGb < 5.5) "⚠ RAM 6GB 미만 기기는 메모리 부족·느린 속도가 생길 수 있습니다. 다른 앱을 닫고 사용하세요."
+                    else "권장 사양(RAM 6GB 이상, 64비트 ARM)을 충족합니다.", style = MaterialTheme.typography.bodySmall)
+                Text("처리 속도는 기기에 따라 음성 길이의 약 2~6배 시간이 걸립니다(긴 글은 백그라운드에서 진행).", style = MaterialTheme.typography.bodySmall)
                 Text("성능 모드: ${AppGraph.settings.performanceMode.label}", style = MaterialTheme.typography.bodySmall)
             }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("한국어 특화 처리", fontWeight = FontWeight.Bold)
-                Text("• 숫자 읽기: 세 개/삼 개월, 세 시/십삼 시, 날짜·시간·전화번호·단위·통화·분수\n" +
-                    "• 한자→한글 (두음법칙 적용), 영어 외래어 사전 + 발음 사전(CMUdict)\n" +
-                    "• MeloTTS 학습 시 사용된 g2pkk 발음 규칙을 그대로 이식 (원본과 3,020문장 중 3,018문장 일치)\n" +
-                    "• mecab 형태소 분석기 대신, mecab의 판단을 증류한 경량 규칙표(14KB)로 용언 경음화 처리\n" +
-                    "• 문장 단위 자동 분할·쉼 조절, 문장별 음량 평준화, 중단 후 이어서 생성",
+                Text("기능", fontWeight = FontWeight.Bold)
+                Text("• 목소리 학습: 음성 파일·영상·녹음 → 말하는 구간 자동 분리, 잡음 구간·다른 화자 자동 제외, 자료를 추가할수록 누적 학습\n" +
+                    "• 자동 학습: 회차마다 최대 100가지 방식으로 말해 보고 원본과 가장 닮은 방식을 찾아 목소리에 되먹임(최대 5회차)\n" +
+                    "• 감정 10종 + 강도, 문장별 자동 감정(대사/서술 구분), 감정에 맞는 원본 구간 선택\n" +
+                    "• 부분 지정 태그: 감정·속도·음높이·쉼·울림·상태(전화/라디오/속삭임 등)·톤·읽는 법, 발음 사전\n" +
+                    "• 울림 8종(방~성당), 배경(빗소리/바람/음악 파일 + 자동 더킹), 방송용 마스터링\n" +
+                    "• 한국어 정규화: 숫자·날짜·시간·단위·영어·한자 읽기, 최대 10만 자 자동 분할·순서대로 합치기, 중단 후 이어서 생성",
                     style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        val hq by AppGraph.models.hqState.collectAsState()
+        val scope = rememberCoroutineScope()
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("고품질 디코더 (선택)", fontWeight = FontWeight.Bold)
+                Text("기본 디코더(1단계)보다 음질이 약간 좋은 10단계 디코더입니다. 대신 디코딩이 약 5배 느립니다. 약 ${AppGraph.models.hqDecoderBytes() / 1_000_000}MB.",
+                    style = MaterialTheme.typography.bodySmall)
+                when (val s = hq) {
+                    is ModelManager.State.Working -> { LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth()); Text("${(s.progress * 100).toInt()}%") }
+                    is ModelManager.State.Failed -> Text("실패: ${s.message}", color = MaterialTheme.colorScheme.error)
+                    else -> {}
+                }
+                if (AppGraph.models.hasHqDecoder()) Text("설치됨 — 생성 화면의 ‘감정·연출 설정’에서 켤 수 있습니다.", style = MaterialTheme.typography.bodySmall)
+                else if (hq !is ModelManager.State.Working) OutlinedButton(onClick = { scope.launch { AppGraph.models.installHq() } }) { Text("내려받기") }
             }
         }
         OutlinedButton(onClick = {

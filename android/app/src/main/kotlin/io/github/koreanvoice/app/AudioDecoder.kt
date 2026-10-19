@@ -9,13 +9,31 @@ import java.nio.ByteOrder
 
 /**
  * Decodes any audio format Android supports (mp3, m4a/aac, wav, flac, ogg/opus, amr, 3gp, webm …)
- * from a content Uri — local files, Google Drive, Downloads, etc. — into mono float PCM.
+ * and the audio track of videos (mp4, mkv, webm, 3gp, mov …) from a content Uri — local files,
+ * Google Drive, Downloads, etc. — into mono float PCM.
  */
 object AudioDecoder {
 
     class Decoded(val samples: FloatArray, val sampleRate: Int, val truncated: Boolean)
 
+    /** MIME types offered in the file picker for learning a voice. */
+    val PICK_TYPES = arrayOf("audio/*", "video/*")
+
     fun decode(context: Context, uri: Uri, maxSeconds: Int = 300): Decoded {
+        val parts = ArrayList<FloatArray>(); var sr = 0; var trunc = false
+        decodeWindows(context, uri, windowSeconds = maxSeconds, maxSeconds = maxSeconds) { w, rate, t -> parts.add(w); sr = rate; trunc = t }
+        val all = FloatArray(parts.sumOf { it.size }); var p = 0
+        for (a in parts) { System.arraycopy(a, 0, all, p, a.size); p += a.size }
+        if (all.isEmpty()) error("오디오를 해석할 수 없습니다")
+        return Decoded(all, sr, trunc)
+    }
+
+    /**
+     * Streams the decoded audio in windows of [windowSeconds] (bounded memory for long videos);
+     * [onWindow] gets (samples, sampleRate, truncated-at-limit).
+     */
+    fun decodeWindows(context: Context, uri: Uri, windowSeconds: Int = 60, maxSeconds: Int = 1200,
+                      onWindow: (FloatArray, Int, Boolean) -> Unit) {
         val ex = MediaExtractor()
         ex.setDataSource(context, uri, null)
         val track = (0 until ex.trackCount).firstOrNull {
@@ -30,6 +48,7 @@ object AudioDecoder {
         codec.configure(fmt, null, null, 0)
         codec.start()
         val out = FloatList()
+        var emitted = 0L
         val info = MediaCodec.BufferInfo()
         var inputDone = false
         var outputDone = false
@@ -72,15 +91,19 @@ object AudioDecoder {
                         }
                         codec.releaseOutputBuffer(outIdx, false)
                         if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
-                        if (out.size > maxSeconds.toLong() * sampleRate) { truncated = true; outputDone = true }
+                        if (emitted + out.size > maxSeconds.toLong() * sampleRate) { truncated = true; outputDone = true }
+                        if (out.size >= windowSeconds.toLong() * sampleRate || outputDone) {
+                            if (out.size > 0) onWindow(out.toArray(), sampleRate, truncated)
+                            emitted += out.size; out.clear()
+                        }
                     }
                 }
             }
         } finally {
             runCatching { codec.stop() }; codec.release(); ex.release()
         }
-        if (out.size == 0) error("오디오를 해석할 수 없습니다")
-        return Decoded(out.toArray(), sampleRate, truncated)
+        if (out.size > 0) { onWindow(out.toArray(), sampleRate, truncated); emitted += out.size }
+        if (emitted == 0L) error("오디오를 해석할 수 없습니다")
     }
 
     private class FloatList {
@@ -88,5 +111,6 @@ object AudioDecoder {
         var size = 0; private set
         fun add(v: Float) { if (size == a.size) a = a.copyOf(a.size * 2); a[size++] = v }
         fun toArray() = a.copyOf(size)
+        fun clear() { size = 0 }
     }
 }

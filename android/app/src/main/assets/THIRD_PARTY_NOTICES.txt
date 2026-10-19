@@ -4,23 +4,25 @@
 이 앱의 소스코드는 MIT 라이선스입니다. 앱은 아래 구성요소를 포함하거나 그로부터
 변환된 데이터를 포함합니다. 각 구성요소의 라이선스를 따릅니다.
 
-[모델]
-1. OpenVoice V2 — tone color converter & base speaker embedding
-   Copyright (c) 2024 MyShell.ai — MIT License
-   https://github.com/myshell-ai/OpenVoice , https://huggingface.co/myshell-ai/OpenVoiceV2
-   (PyTorch 가중치를 ONNX로 변환하고 일부 가중치를 int8/fp16으로 압축함)
+[모델] (앱이 처음 실행될 때 내려받는 모델 팩)
+1. Chatterbox Multilingual (T3 다국어 음성 토큰 언어모델, S3Gen 디코더, VoiceEncoder, 토크나이저)
+   Copyright (c) 2025 Resemble AI — MIT License
+   https://github.com/resemble-ai/chatterbox , https://huggingface.co/ResembleAI/chatterbox
+   (PyTorch 가중치를 ONNX로 직접 변환. T3는 4비트, 나머지는 8비트/fp16 가중치로 압축 — 수정됨)
+   원본 Chatterbox는 생성 음성에 Resemble AI의 PerTh 워터마크를 넣지만, 이 앱은 워터마크 대신
+   MP3 메타데이터(ID3)에 'AI 생성 음성'을 기록합니다.
 
-2. MeloTTS-Korean
-   Copyright (c) 2024 MyShell.ai — MIT License
-   https://github.com/myshell-ai/MeloTTS , https://huggingface.co/myshell-ai/MeloTTS-Korean
-   (ONNX 변환 + 가중치 압축. 한국어 텍스트 처리 코드는 Kotlin으로 이식)
+2. Chatterbox-Turbo의 1단계(meanflow) S3Gen 디코더
+   Copyright (c) 2025 Resemble AI — MIT License
+   https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX (8비트 가중치로 압축 — 수정됨)
 
-3. kykim/bert-kor-base (MeloTTS-Korean의 운율 특징 추출에 사용, 앞 10개 층만 포함)
-   Copyright Kiyoung Kim — Apache License 2.0
-   https://huggingface.co/kykim/bert-kor-base , https://github.com/kiyoungkim1/LMkor
-   주의: 원저자는 "모델의 상업적 사용의 경우 MOU를 통해 무료로 사용할 수 있으니
-   kykim@artificial.sc 로 문의"하라고 안내하고 있습니다. 상업적으로 배포·사용하려면
-   원저자에게 먼저 문의하십시오. (ONNX 변환, int8 양자화, 마지막 2개 층 제거 — 수정됨)
+3. S3 음성 토크나이저, CAMPPlus 화자 임베딩, HiFT 보코더 (Chatterbox에 포함된 CosyVoice 계열 구성요소)
+   Copyright (c) Alibaba, Inc. and its affiliates — Apache License 2.0
+   https://github.com/FunAudioLLM/CosyVoice , https://github.com/modelscope/3D-Speaker
+   (ONNX 변환 및 압축 — 수정됨. 음성 토크나이저 ONNX 그래프는 onnx-community/chatterbox-multilingual-ONNX 기반)
+
+※ v1 엔진(OpenVoice V2 + MeloTTS-Korean, MIT)의 코드는 소스 저장소에 남아 있지만, 이 버전의
+  앱과 모델 팩에는 포함되지 않습니다.
 
 [텍스트 처리 데이터/코드]
 4. g2pkk 0.1.2 (g2pK 포크) — Apache License 2.0

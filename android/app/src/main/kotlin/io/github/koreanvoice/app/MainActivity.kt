@@ -88,7 +88,7 @@ private fun ModelSetupScreen(state: ModelManager.State) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text("한국어 보이스클론", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("OpenVoice V2 + MeloTTS 기반 · 완전 온디바이스", style = MaterialTheme.typography.bodyMedium)
+        Text("감정 표현 음성 합성 · 완전 온디바이스 · 무료", style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(32.dp))
         when (state) {
             ModelManager.State.Checking -> { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("모델 확인 중…") }
@@ -141,7 +141,7 @@ private fun MainTabs() {
         val m = Modifier.padding(pad)
         when (tab) {
             0 -> SynthScreen(vm, m, onGoVoices = { tab = 1 }, onGoLibrary = { tab = 2 })
-            1 -> VoicesScreen(vm, m)
+            1 -> VoicesScreen(vm, m, onGoLibrary = { tab = 2 })
             2 -> LibraryScreen(m)
             else -> AboutScreen(m)
         }

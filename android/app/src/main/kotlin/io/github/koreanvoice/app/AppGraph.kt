@@ -4,12 +4,15 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import io.github.koreanvoice.engine.SynthParams
-import io.github.koreanvoice.engine.SynthesisJob
-import io.github.koreanvoice.engine.ThreadConfig
-import io.github.koreanvoice.engine.VoiceEngine
+import android.net.Uri
+import io.github.koreanvoice.audio.Dsp
+import io.github.koreanvoice.expressive.AutoTuner
+import io.github.koreanvoice.expressive.CbEngine
+import io.github.koreanvoice.expressive.Emotion
+import io.github.koreanvoice.expressive.Style
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import org.json.JSONObject
 import java.io.File
 
 class KoreanVoiceApp : Application() {
@@ -17,15 +20,15 @@ class KoreanVoiceApp : Application() {
         super.onCreate()
         AppGraph.init(this)
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(SynthesisService.CHANNEL, "음성 생성", NotificationManager.IMPORTANCE_LOW))
-        nm.createNotificationChannel(NotificationChannel(SynthesisService.CHANNEL_DONE, "생성 완료", NotificationManager.IMPORTANCE_DEFAULT))
+        nm.createNotificationChannel(NotificationChannel(SynthesisService.CHANNEL, "음성 생성·학습", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(SynthesisService.CHANNEL_DONE, "완료 알림", NotificationManager.IMPORTANCE_DEFAULT))
     }
 }
 
 enum class PerformanceMode(val label: String, val description: String) {
     SAVER("절전", "발열·배터리 최소화 (느림)"),
     BALANCED("균형", "대부분의 기기에 권장"),
-    MAX("최대", "모든 코어 사용 (발열 증가)"),
+    MAX("최대", "모든 고성능 코어 사용 (발열 증가)"),
 }
 
 /** Process-wide singletons. */
@@ -46,29 +49,76 @@ object AppGraph {
     val outputDir: File get() = File(app.getExternalFilesDir(null) ?: app.filesDir, "outputs").apply { mkdirs() }
     val jobCacheDir: File get() = File(app.filesDir, "jobs").apply { mkdirs() }
 
-    private var engine: VoiceEngine? = null
-    private var engineMode: PerformanceMode? = null
+    private var engine: CbEngine? = null
+    private var engineKey: String? = null
 
-    fun scheduleFor(mode: PerformanceMode): Pair<ThreadConfig, Boolean> {
+    fun threadsFor(mode: PerformanceMode): Int {
         val cores = Runtime.getRuntime().availableProcessors()
         return when (mode) {
-            PerformanceMode.SAVER -> ThreadConfig(2, 2) to false
-            PerformanceMode.BALANCED -> if (cores >= 6) ThreadConfig(3, 3) to true else ThreadConfig(cores.coerceAtLeast(2), cores.coerceAtLeast(2)) to false
-            PerformanceMode.MAX -> if (cores >= 6) ThreadConfig(cores / 2, cores / 2) to true else ThreadConfig(cores, cores) to false
+            PerformanceMode.SAVER -> 2
+            PerformanceMode.BALANCED -> minOf(4, cores)
+            PerformanceMode.MAX -> if (cores >= 8) cores / 2 else minOf(6, maxOf(2, cores - 2))
         }
     }
 
-    /** Lazily create the (heavy) inference engine; recreated when the performance mode changes. */
+    /** In MAX mode on 8+ core phones, T3 and the decoder run concurrently (each with half the cores). */
+    fun pipelined(): Boolean = settings.performanceMode == PerformanceMode.MAX && Runtime.getRuntime().availableProcessors() >= 8
+
+    /** Lazily create the (heavy) inference engine; recreated when performance mode / decoder change. */
     @Synchronized
-    fun engine(): VoiceEngine {
+    fun engine(): CbEngine {
         val mode = settings.performanceMode
-        engine?.let { if (engineMode == mode) return it; it.close() }
-        val (threads, pipelined) = scheduleFor(mode)
-        return VoiceEngine(models.modelDir, threads, allowSpinning = !pipelined).also { engine = it; engineMode = mode }
+        val dec = if (settings.highQualityDecoder && models.hasHqDecoder()) CbEngine.DECODER_HQ else CbEngine.DECODER_FAST
+        val key = "$mode|$dec"
+        engine?.let { if (engineKey == key) return it; it.close() }
+        return CbEngine(models.modelDir, threadsFor(mode), dec).also { engine = it; engineKey = key }
     }
 
     @Synchronized
-    fun releaseEngine() { engine?.close(); engine = null; engineMode = null }
+    fun releaseEngine() { engine?.close(); engine = null; engineKey = null }
+}
+
+/** Document-level delivery settings chosen in the generation screen. */
+data class DeliverySettings(
+    val emotion: Emotion = Emotion.NEUTRAL,
+    val intensity: Float = 1f,
+    val autoEmotion: Boolean = true,
+    val emotionRouting: Boolean = true,
+    val tempo: Float = 1f,
+    val pitch: Float = 0f,
+    val room: Dsp.Room = Dsp.Room.NONE,
+    val wet: Float = -1f,
+    val state: Dsp.State = Dsp.State.NORMAL,
+    val tone: Dsp.Tone = Dsp.Tone.NORMAL,
+    val background: String = "없음",
+    val backgroundDb: Float = -22f,
+    val mastering: Boolean = false,
+    val pauseScale: Float = 1f,
+    val useTuning: Boolean = true,
+) {
+    fun style() = Style(
+        emotion = emotion, intensity = intensity, explicitEmotion = !autoEmotion && emotion != Emotion.NEUTRAL,
+        tempo = tempo.toDouble(), pitch = pitch.toDouble(), room = room, wet = if (wet < 0) null else wet.toDouble(),
+        state = state, tone = if (tone == Dsp.Tone.NORMAL) null else tone,
+    )
+
+    fun toJson() = JSONObject().apply {
+        put("emotion", emotion.name); put("intensity", intensity.toDouble()); put("auto", autoEmotion); put("routing", emotionRouting)
+        put("tempo", tempo.toDouble()); put("pitch", pitch.toDouble()); put("room", room.name); put("wet", wet.toDouble())
+        put("state", state.name); put("tone", tone.name); put("bg", background); put("bgDb", backgroundDb.toDouble())
+        put("master", mastering); put("pause", pauseScale.toDouble()); put("tuning", useTuning)
+    }
+
+    companion object {
+        fun fromJson(o: JSONObject) = DeliverySettings(
+            runCatching { Emotion.valueOf(o.getString("emotion")) }.getOrDefault(Emotion.NEUTRAL), o.optDouble("intensity", 1.0).toFloat(),
+            o.optBoolean("auto", true), o.optBoolean("routing", true), o.optDouble("tempo", 1.0).toFloat(), o.optDouble("pitch", 0.0).toFloat(),
+            runCatching { Dsp.Room.valueOf(o.getString("room")) }.getOrDefault(Dsp.Room.NONE), o.optDouble("wet", -1.0).toFloat(),
+            runCatching { Dsp.State.valueOf(o.getString("state")) }.getOrDefault(Dsp.State.NORMAL),
+            runCatching { Dsp.Tone.valueOf(o.getString("tone")) }.getOrDefault(Dsp.Tone.NORMAL),
+            o.optString("bg", "없음"), o.optDouble("bgDb", -22.0).toFloat(), o.optBoolean("master", false), o.optDouble("pause", 1.0).toFloat(),
+            o.optBoolean("tuning", true))
+    }
 }
 
 class Settings(context: Context) {
@@ -76,56 +126,61 @@ class Settings(context: Context) {
     var performanceMode: PerformanceMode
         get() = runCatching { PerformanceMode.valueOf(prefs.getString("perf", "BALANCED")!!) }.getOrDefault(PerformanceMode.BALANCED)
         set(v) = prefs.edit().putString("perf", v.name).apply()
+    var highQualityDecoder: Boolean
+        get() = prefs.getBoolean("hqdec", false)
+        set(v) = prefs.edit().putBoolean("hqdec", v).apply()
     var lastVoiceId: String?
-        get() = prefs.getString("voice", null)
-        set(v) = prefs.edit().putString("voice", v).apply()
+        get() = prefs.getString("voice2", null)
+        set(v) = prefs.edit().putString("voice2", v).apply()
     var draftText: String
         get() = prefs.getString("draft", "") ?: ""
         set(v) = prefs.edit().putString("draft", v).apply()
     var bitrate: Int
-        get() = prefs.getInt("bitrate", 64)
+        get() = prefs.getInt("bitrate", 96)
         set(v) = prefs.edit().putInt("bitrate", v).apply()
-    var params: SynthParams
-        get() = SynthParams(
-            speed = prefs.getFloat("speed", 1f), noiseScale = prefs.getFloat("noise", 0.6f), noiseScaleW = prefs.getFloat("noiseW", 0.8f),
-            sdpRatio = prefs.getFloat("sdp", 0.2f), tau = prefs.getFloat("tau", 0.3f), timbreStrength = prefs.getFloat("timbre", 1.2f), adaptiveSource = prefs.getBoolean("adaptive", true),
-        )
-        set(p) = prefs.edit().putFloat("speed", p.speed).putFloat("noise", p.noiseScale).putFloat("noiseW", p.noiseScaleW)
-            .putFloat("sdp", p.sdpRatio).putFloat("tau", p.tau).putFloat("timbre", p.timbreStrength).putBoolean("adaptive", p.adaptiveSource).apply()
-    var pauseScale: Float
-        get() = prefs.getFloat("pause", 1f)
-        set(v) = prefs.edit().putFloat("pause", v).apply()
+    var delivery: DeliverySettings
+        get() = prefs.getString("delivery", null)?.let { runCatching { DeliverySettings.fromJson(JSONObject(it)) }.getOrNull() } ?: DeliverySettings()
+        set(v) = prefs.edit().putString("delivery", v.toJson().toString()).apply()
+    /** User pronunciation dictionary: one "표기=읽는법" per line. */
+    var dictionaryText: String
+        get() = prefs.getString("dict", "") ?: ""
+        set(v) = prefs.edit().putString("dict", v).apply()
+    val dictionary: Map<String, String>
+        get() = dictionaryText.lines().mapNotNull { l -> l.split('=', limit = 2).takeIf { it.size == 2 && it[0].isNotBlank() }?.let { it[0].trim() to it[1].trim() } }.toMap()
     var consentAccepted: Boolean
         get() = prefs.getBoolean("consent", false)
         set(v) = prefs.edit().putBoolean("consent", v).apply()
 }
 
-data class SynthesisRequest(
-    val text: String,
-    val title: String,
-    val voiceId: String?,
-    val params: SynthParams,
-    val bitrate: Int,
-    val pauseScale: Float,
-)
+/** Long-running work executed by [SynthesisService]. */
+sealed interface TaskRequest {
+    val title: String
+    data class Synthesis(val text: String, override val title: String, val voiceId: String, val delivery: DeliverySettings,
+                         val bitrate: Int, val backgroundUri: Uri?, val dictionary: Map<String, String>) : TaskRequest
+    data class Learn(val voiceId: String, override val title: String, val uris: List<Pair<Uri, String>>,
+                     val recording: Pair<FloatArray, Int>? = null) : TaskRequest
+    data class AutoLearn(val voiceId: String, override val title: String, val config: AutoTuner.Config, val modeLabel: String) : TaskRequest
+}
+
+enum class TaskKind(val label: String) { SYNTHESIS("음성 생성"), LEARN("목소리 학습"), AUTOLEARN("자동 학습") }
 
 sealed interface JobState {
     data object Idle : JobState
-    data class Preparing(val message: String) : JobState
-    data class Running(val title: String, val progress: SynthesisJob.Progress) : JobState
-    data class Finalizing(val title: String) : JobState
-    data class Done(val title: String, val file: File, val durationSec: Double, val elapsedMs: Long, val savedToMusic: Boolean) : JobState
-    data class Failed(val message: String) : JobState
-    data object Cancelled : JobState
+    data class Preparing(val kind: TaskKind, val message: String) : JobState
+    data class Running(val kind: TaskKind, val title: String, val fraction: Float, val primary: String, val secondary: String = "",
+                       val etaMs: Long = -1, val scores: List<Double> = emptyList(), val baseline: Double = Double.NaN) : JobState
+    data class Done(val kind: TaskKind, val title: String, val summary: String, val file: File? = null, val voiceId: String? = null) : JobState
+    data class Failed(val kind: TaskKind, val message: String) : JobState
+    data class Cancelled(val kind: TaskKind) : JobState
 }
 
 class JobManager {
     private val _state = MutableStateFlow<JobState>(JobState.Idle)
     val state: StateFlow<JobState> = _state
-    @Volatile var pending: SynthesisRequest? = null
+    @Volatile var pending: TaskRequest? = null
     @Volatile var cancelRequested = false
 
     fun update(s: JobState) { _state.value = s }
-    val isBusy: Boolean get() = _state.value.let { it is JobState.Preparing || it is JobState.Running || it is JobState.Finalizing }
+    val isBusy: Boolean get() = _state.value.let { it is JobState.Preparing || it is JobState.Running }
     fun reset() { if (!isBusy) _state.value = JobState.Idle }
 }

@@ -1,7 +1,7 @@
 package io.github.koreanvoice.app
 
 import android.content.Context
-import io.github.koreanvoice.engine.VoiceEngine
+import io.github.koreanvoice.expressive.CbEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,7 +50,9 @@ class ModelManager(private val context: Context) {
 
     suspend fun check() = withContext(Dispatchers.IO) {
         modelDir.mkdirs()
-        val missing = VoiceEngine.MODEL_FILES.filterNot { isInstalled(it) }
+        // remove the v1 model pack (OpenVoice/MeloTTS) if it is still on the device
+        listOf("bert_kr.onnx", "melo_kr.onnx", "tone_convert.onnx", "tone_extract.onnx").forEach { n -> File(modelDir, n).delete(); File(modelDir, "$n.ok").delete() }
+        val missing = CbEngine.MODEL_FILES.filterNot { isInstalled(it) }
         when {
             missing.isEmpty() -> _state.value = State.Ready
             BuildConfig.BUNDLED_MODELS -> install()
@@ -58,11 +60,33 @@ class ModelManager(private val context: Context) {
         }
     }
 
+    fun hasHqDecoder() = isInstalled(CbEngine.DECODER_HQ)
+    fun hqDecoderBytes(): Long = runCatching { entry(CbEngine.DECODER_HQ).getLong("size") }.getOrDefault(0L)
+
+    private val _hq = MutableStateFlow<State>(State.Checking)
+    /** Download state of the optional high-quality decoder. */
+    val hqState: StateFlow<State> = _hq
+
+    suspend fun installHq() = withContext(Dispatchers.IO) {
+        _hq.value = State.Working("고품질 디코더 다운로드", 0f)
+        try { installFiles(listOf(CbEngine.DECODER_HQ)) { l, p -> _hq.value = State.Working(l, p) }; _hq.value = State.Ready }
+        catch (t: Throwable) { _hq.value = State.Failed(t.message ?: t.toString()) }
+    }
+
     /** Copy bundled assets (full) or download (lite). */
     suspend fun install() = withContext(Dispatchers.IO) {
         try {
+            installFiles(CbEngine.MODEL_FILES) { l, p -> _state.value = State.Working(l, p) }
+            _state.value = State.Ready
+        } catch (t: Throwable) {
+            _state.value = State.Failed(t.message ?: t.toString())
+        }
+    }
+
+    private fun installFiles(all: List<String>, report: (String, Float) -> Unit) {
+        run {
             modelDir.mkdirs()
-            val files = VoiceEngine.MODEL_FILES.filterNot { isInstalled(it) }
+            val files = all.filterNot { isInstalled(it) }
             val total = files.sumOf { entry(it).getLong("size") }.coerceAtLeast(1)
             var done = 0L
             for (name in files) {
@@ -70,7 +94,7 @@ class ModelManager(private val context: Context) {
                 val dst = File(modelDir, name)
                 val tmp = File(modelDir, "$name.part")
                 val md = MessageDigest.getInstance("SHA-256")
-                if (BuildConfig.BUNDLED_MODELS) {
+                if (BuildConfig.BUNDLED_MODELS && runCatching { context.assets.open("models/$name").close() }.isSuccess) {
                     tmp.delete()
                     context.assets.open("models/$name").use { input ->
                         FileOutputStream(tmp).use { out ->
@@ -78,7 +102,7 @@ class ModelManager(private val context: Context) {
                             while (true) {
                                 val n = input.read(buf); if (n < 0) break
                                 out.write(buf, 0, n); md.update(buf, 0, n); done += n
-                                _state.value = State.Working("모델 준비 중 (최초 1회)", done.toFloat() / total)
+                                report("모델 준비 중 (최초 1회)", done.toFloat() / total)
                             }
                         }
                     }
@@ -91,7 +115,7 @@ class ModelManager(private val context: Context) {
                             val partFile = File(modelDir, "$partName.dl")
                             val before = done
                             download(partName, partFile) { got ->
-                                _state.value = State.Working("모델 다운로드 중 (최초 1회, 약 ${total / 1_000_000} MB)", (before + got).toFloat() / total)
+                                report("모델 다운로드 중 (약 ${total / 1_000_000} MB)", (before + got).toFloat() / total)
                             }
                             partFile.inputStream().use { input ->
                                 val buf = ByteArray(1 shl 20)
@@ -110,9 +134,6 @@ class ModelManager(private val context: Context) {
                 check(tmp.renameTo(dst)) { "파일 저장 실패: $name" }
                 File(modelDir, "$name.ok").writeText(sha)
             }
-            _state.value = State.Ready
-        } catch (t: Throwable) {
-            _state.value = State.Failed(t.message ?: t.toString())
         }
     }
 
