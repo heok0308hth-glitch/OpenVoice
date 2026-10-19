@@ -96,7 +96,13 @@ object VoiceAnalysis {
                 }
                 tau++
             }
-            if (tauSel <= 0) continue
+            if (tauSel <= 0) {
+                // standard YIN fallback: the global minimum, if still clearly periodic (gliding pitch rarely
+                // reaches the strict threshold within a 40 ms window)
+                var gm = tauMin
+                for (tt in tauMin..tauMax) if (cmnd[tt] < cmnd[gm]) gm = tt
+                if (cmnd[gm] < 0.35) tauSel = gm else continue
+            }
             // parabolic interpolation
             val t = tauSel.toDouble()
             val refined = if (tauSel in 1 until tauMax) {

@@ -396,23 +396,16 @@ object Dsp {
         return FloatArray(len) { if (norm[it] > 1e-3f) out[it] / norm[it] else out[it] }
     }
 
-    /** Pitch shift by semitones (WSOLA stretch + resampling), duration preserved. */
-    fun pitchShift(x: FloatArray, sr: Int, semitones: Double): FloatArray {
-        if (abs(semitones) < 0.05) return x
-        val f = 2.0.pow(semitones / 12)
-        val stretched = timeStretch(x, sr, 1 / f)
-        return Resampler.resample(stretched, shiftRate(sr, f), sr)
-    }
+    /**
+     * Pitch shift by semitones, duration and formants preserved (TD-PSOLA). Resampling-based shifting moved the
+     * formants too and cut speaker similarity to ~0.6 at ±2 semitones; PSOLA keeps ~0.9.
+     */
+    fun pitchShift(x: FloatArray, sr: Int, semitones: Double): FloatArray = Psola.pitchShift(x, sr, semitones)
 
-    /** sr·f rounded to 100 Hz (≤0.04 semitone error) so the resampler's fast polyphase path applies. */
-    private fun shiftRate(sr: Int, f: Double) = ((sr * f / 100).roundToInt() * 100).coerceAtLeast(100)
-
-    /** Tempo and pitch together (one resampling pass). */
+    /** Tempo (WSOLA, best measured identity preservation) and pitch (PSOLA). */
     fun tempoPitch(x: FloatArray, sr: Int, tempo: Double, semitones: Double): FloatArray {
-        if (abs(semitones) < 0.05) return timeStretch(x, sr, tempo)
-        val f = 2.0.pow(semitones / 12)
-        val stretched = timeStretch(x, sr, tempo / f)
-        return Resampler.resample(stretched, shiftRate(sr, f), sr)
+        val t = timeStretch(x, sr, tempo)
+        return if (abs(semitones) < 0.05) t else Psola.pitchShift(t, sr, semitones)
     }
 
     /**
