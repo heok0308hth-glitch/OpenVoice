@@ -6,3 +6,6 @@ build/
 *.iml
 release.keystore
 release/KoreanVoice-full.apk
+release/sample_*.mp3
+release/*.apk
+release/*.png

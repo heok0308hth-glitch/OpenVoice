@@ -216,7 +216,7 @@ class G2pKo(private val res: Resources = Resources.shared) {
                 val line = raw.split("#")[0].trim()
                 if ("===" !in line) null else {
                     val (a, b) = line.split("===")
-                    Pattern.compile(a, Pattern.UNICODE_CHARACTER_CLASS) to Matcher.quoteReplacement(b)
+                    Pattern.compile(a) to Matcher.quoteReplacement(b)
                 }
             }
 
@@ -240,12 +240,18 @@ class G2pKo(private val res: Resources = Resources.shared) {
 
     /** One row/column cell of g2pkk's table.csv, compiled from Python regex syntax. */
     class TableRule(pattern: String, replacement: String) {
-        private val p: Pattern = Pattern.compile(pattern, Pattern.UNICODE_CHARACTER_CLASS)
+        // Python's \W is Unicode-aware; spell it out so desktop Java and Android (ICU) agree.
+        private val p: Pattern = Pattern.compile(pattern.replace("\\W", PY_NON_WORD))
         private val rep: String = replacement.replace(Regex("\\\\(\\d)"), "\\$$1")
         fun apply(s: String): String = p.matcher(s).replaceAll(rep)
     }
 
     companion object {
+        /**
+         * Python 3 `\W` (complement of str.isalnum() or '_'). Pattern.UNICODE_CHARACTER_CLASS would do
+         * the same on desktop Java but throws on Android, whose regex engine is ICU.
+         */
+        const val PY_NON_WORD = "[^\\p{L}\\p{N}_]"
         private val PJEB: Pattern = Pattern.compile("/[PJEB]")
         private val ENG_WORD: Pattern = Pattern.compile("[A-Za-z']+")
         private val JAMO_ANY: Pattern = Pattern.compile("[ᄀ-ᇿ]")
@@ -259,7 +265,7 @@ class G2pKo(private val res: Resources = Resources.shared) {
         private val patternCache = HashMap<String, Pattern>()
 
         private fun rx(pattern: String, input: String, replacement: String): String {
-            val p = synchronized(patternCache) { patternCache.getOrPut(pattern) { Pattern.compile(pattern, Pattern.UNICODE_CHARACTER_CLASS) } }
+            val p = synchronized(patternCache) { patternCache.getOrPut(pattern) { Pattern.compile(pattern) } }
             return p.matcher(input).replaceAll(replacement)
         }
 
