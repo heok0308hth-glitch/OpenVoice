@@ -9,3 +9,6 @@ release/KoreanVoice-full.apk
 release/sample_*.mp3
 release/*.apk
 release/*.png
+release/*.bundle
+release/*.zip
+release/*.wav
