@@ -43,9 +43,10 @@ object VoiceAnalysis {
 
     const val LTAS_BANDS = 24
 
-    fun analyze(x: FloatArray, sr: Int): Profile {
-        val x16 = if (sr == 16000) x else Resampler.resample(x, sr, 16000)
-        val f0 = yin(x16, 16000)
+    /** [x16] may pass an already resampled 16 kHz copy; [hopMs] coarser pitch tracking for quick scoring. */
+    fun analyze(x: FloatArray, sr: Int, x16In: FloatArray? = null, hopMs: Int = 10): Profile {
+        val x16 = x16In ?: if (sr == 16000) x else Resampler.resample(x, sr, 16000)
+        val f0 = yin(x16, 16000, hopMs = hopMs)
         val voiced = f0.filter { it > 0 }.map { 12 * ln(it / 100.0) / ln(2.0) }
         val med = if (voiced.isEmpty()) Double.NaN else voiced.sorted()[voiced.size / 2]
         // robust std (exclude octave errors beyond ±12 st from the median)
@@ -59,15 +60,16 @@ object VoiceAnalysis {
         val eStd = if (act.size < 2) 0.0 else sqrt(act.sumOf { (it - am) * (it - am) } / act.size)
         var onsets = 0
         val vflags = f0.map { it > 0 }
-        for (i in 3 until vflags.size) if (vflags[i] && !vflags[i - 1] && !vflags[i - 2]) onsets++
+        val gap = maxOf(1, 20 / hopMs)        // an onset needs ≥20 ms of silence before it
+        for (i in gap + 1 until vflags.size) if (vflags[i] && (1..gap).all { !vflags[i - it] }) onsets++
         val activeSec = act.size * 0.01
         return Profile(med, std, if (f0.isEmpty()) 0.0 else voiced.size.toDouble() / f0.size, eStd,
             if (activeSec > 0.3) onsets / activeSec else 0.0, ltas(x, sr), tailRatio(db))
     }
 
     /** YIN F0 tracker (10 ms hop, 40 ms window, 60–500 Hz); 0 = unvoiced. */
-    fun yin(x: FloatArray, sr: Int, fmin: Double = 60.0, fmax: Double = 500.0, threshold: Double = 0.15): DoubleArray {
-        val w = (0.04 * sr).toInt(); val hop = sr / 100
+    fun yin(x: FloatArray, sr: Int, fmin: Double = 60.0, fmax: Double = 500.0, threshold: Double = 0.15, hopMs: Int = 10): DoubleArray {
+        val w = (0.04 * sr).toInt(); val hop = sr * hopMs / 1000
         val tauMin = (sr / fmax).toInt(); val tauMax = min(w - 1, (sr / fmin).toInt())
         val n = max(0, (x.size - w - tauMax) / hop)
         val out = DoubleArray(n)

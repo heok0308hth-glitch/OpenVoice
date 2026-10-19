@@ -205,14 +205,18 @@ class SynthesisService : Service() {
         }, cancel = { cancelled })
         bank.tuning = res.tuning; bank.generation++; bank.save()
         val (vt, vb) = tuner.verified ?: (Double.NaN to Double.NaN)
-        val gain = (vt - vb) / (1 - vb).coerceAtLeast(1e-6) * 100
         val g = res.best.gen
         val summary = buildString {
             append("${req.modeLabel} 자동 학습 완료 · 시도 ${res.evaluated}가지 · ${formatDuration(System.currentTimeMillis() - t0)}\n")
-            append("유사도 점수: 시작 ${"%.3f".format(res.baseline)} → 최고 ${"%.3f".format(res.roundBest.maxOrNull() ?: res.baseline)}")
-            if (!vt.isNaN()) append("\n재검증(새 문장 표본): 기본 ${"%.3f".format(vb)} → 학습 ${"%.3f".format(vt)}" +
-                if (vt >= vb) " (남은 차이의 ${"%.0f".format(gain)}% 개선)" else " — 개선이 확인되지 않아 기본 설정을 유지했습니다.")
-            append("\n찾은 설정: 감정 ${"%.2f".format(g.ex)}, 속도감 ${"%.2f".format(g.cfg)}, 다양성 ${"%.2f".format(g.temp)}, 음높이 ${"%+.1f".format(res.tuning.pitch)}, 음색 기울기 ${"%+.1f".format(res.tuning.tilt)}dB, 울림 ${"%.2f".format(res.tuning.wet)}")
+            append("탐색 점수: 시작 ${"%.3f".format(res.baseline)} → 최고 ${"%.3f".format(res.roundBest.maxOrNull() ?: res.baseline)}\n")
+            if (res.accepted) {
+                append("새 문장 검증(독립 화자 인식 ECAPA): 기본 ${"%.3f".format(vb)} → 학습 ${"%.3f".format(vt)} — 적용했습니다.\n")
+                append("찾은 설정: 감정 ${"%.2f".format(g.ex)}, 속도감 ${"%.2f".format(g.cfg)}, 다양성 ${"%.2f".format(g.temp)}, 음색 혼합 ${"%.2f".format(g.blend)}, 음색 보정 ${"%.1f".format(res.best.v.xs)}, 기울기 ${"%+.1f".format(res.best.v.tilt)}dB")
+            } else {
+                append("새 문장 검증에서 기본 설정보다 분명히 나은 방식을 찾지 못해 기본 설정을 유지했습니다" +
+                    (if (!vt.isNaN()) " (기본 ${"%.3f".format(vb)}, 후보 ${"%.3f".format(vt)})." else ".") +
+                    "\n자료(음성)를 더 추가하면 더 좋아질 수 있습니다.")
+            }
         }
         return JobState.Done(TaskKind.AUTOLEARN, req.title, summary, voiceId = req.voiceId)
     }

@@ -83,9 +83,16 @@
     "ve_lstm.onnx.part0"
    ]
   },
+  "ecapa.onnx": {
+   "size": 42342569,
+   "sha256": "1f12f805be3c445aeb3ab8c229836b8770f73f23990db4e275e2757e969dbb0b",
+   "parts": [
+    "ecapa.onnx.part0"
+   ]
+  },
   "s3gen_turbo.onnx": {
-   "size": 244277151,
-   "sha256": "d9bd965bd8dc13c4fb8f9c3f8302dd1ce4853505d1a7924b2da78b6862293263",
+   "size": 246837665,
+   "sha256": "3173a2cb177d77a6c2d53f23fadc92a94257a6101c20e3313fb9d741270ff206",
    "parts": [
     "s3gen_turbo.onnx.part0",
     "s3gen_turbo.onnx.part1",
@@ -96,8 +103,8 @@
    ]
   },
   "s3gen_hq.onnx": {
-   "size": 186921429,
-   "sha256": "a38239c84a8990c91ed27b9d237534a9759b8fd8b120f421ddb7f6890445d191",
+   "size": 188201668,
+   "sha256": "25c0aff7e3d958dff55f19ca518c6e5731bf9f1ef8be04aa8a1a22a5bd33a7ea",
    "parts": [
     "s3gen_hq.onnx.part0",
     "s3gen_hq.onnx.part1",

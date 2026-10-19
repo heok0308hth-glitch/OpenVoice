@@ -374,16 +374,18 @@ object Dsp {
             var pos = ideal
             if (k > 0) {
                 val nat = prevPos + hs     // natural continuation of the previous frame
+                // coarse-to-fine search for the best-matching continuation
+                fun corr(c: Int): Double {
+                    var acc = 0.0; var m = 0
+                    if (c >= 0 && nat >= 0 && c + n <= x.size && nat + n <= x.size) { while (m < n) { acc += x[c + m] * x[nat + m]; m += 2 } }
+                    else while (m < n) { acc += at(c + m) * at(nat + m); m += 2 }
+                    return acc
+                }
                 var best = Double.NEGATIVE_INFINITY
                 var d = -tol
-                while (d <= tol) {
-                    val c = ideal + d
-                    var acc = 0.0
-                    var m = 0
-                    while (m < n) { acc += at(c + m) * at(nat + m); m += 2 }
-                    if (acc > best) { best = acc; pos = c }
-                    d++
-                }
+                while (d <= tol) { val v = corr(ideal + d); if (v > best) { best = v; pos = ideal + d }; d += 4 }
+                val coarse = pos
+                for (dd in -3..3) { val c = coarse + dd; if (dd != 0 && c - ideal in -tol..tol) { val v = corr(c); if (v > best) { best = v; pos = c } } }
             }
             val o = k * hs
             if (o + n > outLen) break
@@ -399,15 +401,18 @@ object Dsp {
         if (abs(semitones) < 0.05) return x
         val f = 2.0.pow(semitones / 12)
         val stretched = timeStretch(x, sr, 1 / f)
-        return Resampler.resample(stretched, (sr * f).roundToInt(), sr)
+        return Resampler.resample(stretched, shiftRate(sr, f), sr)
     }
+
+    /** sr·f rounded to 100 Hz (≤0.04 semitone error) so the resampler's fast polyphase path applies. */
+    private fun shiftRate(sr: Int, f: Double) = ((sr * f / 100).roundToInt() * 100).coerceAtLeast(100)
 
     /** Tempo and pitch together (one resampling pass). */
     fun tempoPitch(x: FloatArray, sr: Int, tempo: Double, semitones: Double): FloatArray {
         if (abs(semitones) < 0.05) return timeStretch(x, sr, tempo)
         val f = 2.0.pow(semitones / 12)
         val stretched = timeStretch(x, sr, tempo / f)
-        return Resampler.resample(stretched, (sr * f).roundToInt(), sr)
+        return Resampler.resample(stretched, shiftRate(sr, f), sr)
     }
 
     /**

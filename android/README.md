@@ -1,9 +1,9 @@
-# 한국어 보이스클론 (OpenVoice V2 기반 안드로이드 앱)
+# 한국어 보이스클론 v2 — 감정 표현 음성 합성 (안드로이드, 완전 온디바이스)
 
-음성 샘플 하나로 목소리를 복제해, 한국어 글(최대 100,000자)을 그 목소리로 읽은 **MP3**를 만드는
-안드로이드 앱입니다. 유료 API나 서버 없이 **모든 처리를 휴대폰 안에서** 오픈소스 모델로 실행합니다.
+음성 파일·**영상**·녹음으로 목소리를 학습하고, 한국어 글(최대 100,000자)을 그 목소리로 **감정을 살려** 읽은
+**MP3**를 만드는 안드로이드 앱입니다. 유료 API나 서버 없이 **모든 처리를 휴대폰 안에서** 오픈소스 모델로 실행합니다.
 
-> 비공식 프로젝트입니다. MyShell.ai의 OpenVoice / MeloTTS를 MIT 라이선스에 따라 사용합니다.
+> 비공식 프로젝트입니다. v2 엔진은 Resemble AI의 **Chatterbox Multilingual**(MIT)을 휴대폰용으로 직접 변환·압축한 것입니다.
 
 ---
 
@@ -11,134 +11,150 @@
 
 | 파일 | 크기 | 설명 |
 |---|---|---|
-| KoreanVoice-full.apk | 228MB | 모델 내장판. GitHub 단일 파일 한도(100MB)와 포크 저장소의 LFS 업로드 제한 때문에 저장소에는 올릴 수 없음 → `./gradlew :app:assembleFullRelease`로 빌드하거나 따로 전달받은 파일 사용 |
-| [**KoreanVoice-lite.apk**](https://github.com/heok0308hth-glitch/OpenVoice/raw/claude/openvoice-android-tts-cyy4y6/android/release/KoreanVoice-lite.apk) | 15MB | **여기서 바로 다운로드.** 첫 실행 때 이 저장소의 `android/modelpack`에서 모델(212MB)을 1회 받은 뒤 오프라인 동작 |
+| [**KoreanVoice-lite.apk**](https://github.com/heok0308hth-glitch/OpenVoice/raw/claude/openvoice-android-tts-cyy4y6/android/release/KoreanVoice-lite.apk) (v2.0.0) | 16MB | 첫 실행 때 이 저장소의 `android/modelpack`에서 모델(약 920MB)을 1회 받은 뒤 오프라인 동작. **Wi-Fi 권장** |
 
-휴대폰 브라우저에서 링크를 열어 받은 뒤 설치하세요 (설정에서 '출처를 알 수 없는 앱 설치' 허용 필요).
-두 앱은 패키지 이름이 달라 동시에 설치할 수 있습니다.
+- v1(1.0.0)과 같은 서명이라 **덮어 설치(업데이트)** 됩니다. v1 모델(212MB)은 업데이트 후 자동 삭제되고 새 모델을 받습니다.
+- v1에서 만든 목소리는 엔진이 달라 옮겨지지 않습니다. 같은 음성 파일로 다시 학습해 주세요.
+- 고품질 디코더(187MB)는 선택 사항으로, 정보 탭에서 따로 받을 수 있습니다.
 
 ---
 
-## 1. OpenVoice 조사 결과 (실제로 확인한 내용)
+## 1. v1 → v2: 왜 엔진을 바꿨나 (실측 비교)
 
-| 항목 | 확인 결과 |
-|---|---|
-| 설치 방법 (원본) | Python 3.9 + `pip install -e .` + `pip install git+https://github.com/myshell-ai/MeloTTS.git` + `python -m unidic download`. V2 체크포인트는 문서의 S3 링크(`checkpoints_v2_0417.zip`)가 **현재 404**라서 Hugging Face [`myshell-ai/OpenVoiceV2`](https://huggingface.co/myshell-ai/OpenVoiceV2)에서 받아야 함 |
-| 구조 | V2 = **MeloTTS(기본 화자 TTS)** → **ToneColorConverter(음색 변환)**. 참조 음성에서 256차원 화자 임베딩(SE)을 뽑아 기본 화자 음성의 음색을 바꿈 |
-| 한국어 지원 | V2에서 공식 지원. 실제 한국어 음성은 [`myshell-ai/MeloTTS-Korean`](https://huggingface.co/myshell-ai/MeloTTS-Korean)이 생성하고, 변환기에는 `base_speakers/ses/kr.pth`가 쓰임. MeloTTS 한국어는 g2pkk(+mecab) 발음 변환과 [`kykim/bert-kor-base`](https://huggingface.co/kykim/bert-kor-base) BERT 특징을 사용 |
-| 모델 파일 | converter `checkpoint.pth` 131MB, MeloTTS-Korean `checkpoint.pth` 208MB, bert-kor-base 476MB (합계 ~815MB, fp32 PyTorch) |
-| 라이선스 | OpenVoice V1/V2, MeloTTS: **MIT** (상업적 사용 가능). bert-kor-base: Apache-2.0이지만 저작자가 **상업적 사용 시 MOU 문의**를 요청함 (아래 7절) |
-| 원본 기기 요구 사항 | PyTorch, CUDA GPU 권장(CPU 가능). 모바일 실행 수단은 제공되지 않음 → 이 프로젝트에서 ONNX로 변환 |
-| 원본 버그 | `ToneColorConverter(..., enable_watermark=False)`가 `TypeError`를 냄 (kwargs를 부모 클래스로 넘김). 우회해서 사용 |
+v1(OpenVoice V2 + MeloTTS-Korean)은 "**음색만 바꾸는**" 구조라 말투·감정은 MeloTTS 기본 화자 그대로였습니다.
+"감정이 없고 그 사람 특유의 목소리가 살지 않는다"는 지적이 정확했습니다. 같은 한국어 화자 4명, 같은 문장으로 비교:
 
-## 2. 전체 구조
+| 엔진 | 화자 유사도 (ECAPA, 실제 음성 대비) | 발음 오류율 CER (Whisper) | 억양 폭 (원본 대비) |
+|---|---|---|---|
+| v1 OpenVoice V2 + MeloTTS | 0.44 | 2.6% | 0.73 (단조로움) |
+| **v2 Chatterbox Multilingual** (변환·압축 변형별) | **0.80~0.82** | **1.0~1.7%** | 1.16~1.57 (원본보다 풍부) |
+
+(ECAPA는 두 엔진 어느 쪽에도 쓰이지 않은 독립 화자 인식 모델(SpeechBrain)이고, 비교 대상은 학습에 쓰지 않은 실제 음성입니다.)
+
+## 2. 구조
 
 ```
-[텍스트 ≤100,000자]
-   │  KoreanNormalizer: 숫자(세 개/삼 개월/세 시/십삼 시), 날짜·시간·전화번호·단위·통화·분수,
-   │                    한자→한글(두음법칙), 영어(외래어 사전 → CMUdict → 철자), 기호/이모지 정리
-   ▼
-TextChunker: 문장·문단 분할, 긴 문장은 쉼표/연결어미에서 분할, 짧은 문장 병합, 쉼 길이 결정
-   ▼  (청크마다, 2단계 파이프라인 — TTS 단계와 변환 단계가 동시에 실행)
-MeloFrontend (g2pkk 규칙 Kotlin 이식 + mecab 증류 규칙표 + BERT WordPiece)
-   ▼
-bert_kr.onnx (BERT 10층) ─► melo_kr.onnx (MeloTTS-KR, 44.1kHz) ─► 리샘플(22.05kHz)
-   ▼
-tone_convert.onnx (OpenVoice 음색 변환)  ◄── 목소리 프로필(SE, tone_extract.onnx로 추출)
-   ▼
-청크별 디스크 캐시(중단 후 이어하기) → 무음 정리·음량 평준화·쉼 삽입·리미터 → MP3(LAME/jump3r)
+[음성 파일 / 영상 / 녹음] ─► 오디오 추출(영상은 오디오 트랙, 60초 창 단위 스트리밍, 최대 20분)
+   ─► 말소리 구간 검출(VAD) → 3~10초 구간 → 잡음·클리핑 제외 → 화자 임베딩(CAMPPlus)으로
+      주 화자만 선택(처음엔 가장 많이 말한 사람, 이후엔 이미 학습된 목소리와 같은 사람)
+   ─► 목소리 은행(VoiceBank): 구간마다 S3 음성 토큰·멜·화자 특징 저장. 자료를 넣을수록 누적(추가 학습)
+   ─► [자동 학습] 회차당 최대 100가지 방식 시도 → 원본과 가장 닮은 방식 + 정체성 보정 → 5회 반복 → 재검증
+
+[텍스트 ≤100,000자 + 태그]
+   ─► 태그 해석(감정·속도·높이·쉼·울림·상태·톤·읽는 법) → 대사/서술 구분 → 문장별 자동 감정
+   ─► 한국어 정규화(숫자·날짜·단위·영어·한자) → 문장 분할(≤70자)
+   ─► T3 (0.5B Llama, 4비트, CFG + 정렬 검사) : 텍스트 → 음성 토큰   ◄── 감정에 맞는 원본 구간 + 학습된 정체성
+   ─► 이상 길이 자동 재시도 → S3Gen 디코더(1단계 meanflow) → 24kHz
+   ─► 개인 보정(음높이·음색·울림) → 톤·상태·공간 효과 → 음량 평준화 → 배경(더킹) → 마스터링·리미터 → MP3
 ```
 
 | 모듈 | 내용 |
 |---|---|
-| `core/` | 순수 Kotlin(JVM) 엔진. 데스크톱 JVM에서 실제 모델로 테스트 가능 |
-| `app/` | Jetpack Compose UI, 파일 선택(SAF: 내 파일·Google 드라이브·다운로드), 녹음, 포그라운드 서비스, MP3 내보내기/공유 |
-| `modelpack/` | 기기용 ONNX 모델 (48MB 이하 조각으로 분할, `manifest.json`에 SHA-256) |
-| `tools/` | 모델 변환·압축·평가 스크립트 (재현용) |
+| `core/expressive/` | `CbEngine`(Chatterbox 추론), `CbTokenizer`, `VoiceBank`, `AutoTuner`, `Markup`/`EmotionGuesser`, `ExpressiveJob` |
+| `core/audio/` | `Dsp`(FFT 분할 컨볼루션 리버브, WSOLA 속도/음높이, LPC 속삭임·로봇, 전화/라디오 등, 바이쿼드 EQ, 컴프레서, 배경 더킹), `VoiceAnalysis`(YIN 음높이, LTAS, 리듬) |
+| `app/` | Compose UI, 파일/영상 선택(SAF: 내 파일·Google 드라이브), 녹음, 포그라운드 서비스(생성·학습·자동학습) |
+| `modelpack/` | 기기용 ONNX 모델(48MB 이하 조각, `manifest.json`에 SHA-256) |
+| `tools/chatterbox/` | PyTorch → ONNX 변환, 압축, 파이썬 기준 구현, 평가 스크립트 (재현용) |
 
-### 최소 기능 버전(MVP)에서 출발해 확장한 범위
-1. **MVP**: 샘플 파일 1개 → 목소리 임베딩, 한 문장 합성, WAV 저장 → 검증 후
-2. **완성판(현재)**: 다중 샘플/녹음, 100,000자 장문 분할·병렬 파이프라인·이어하기, MP3, 백그라운드 서비스, 미리듣기, 보관함
+## 3. 기능
 
-## 3. 성능·품질을 끌어올린 방법 (모두 실측)
+### 목소리 학습 (반복·추가 학습)
+- 음성 파일(mp3·m4a·wav·flac·ogg…)·**영상(mp4·mkv·webm·3gp…)**·직접 녹음. 여러 개를 한 번에 넣을 수 있음.
+- 이미 학습된 목소리에 **자료를 더 넣으면 누적**됩니다. 정체성은 모든 구간의 품질 가중 평균이라 자료가 늘수록 안정적이고,
+  각 구간은 말투 참조용으로 따로 보관됩니다(최대 60구간). 구간 목록에서 듣기·삭제 가능.
+- 다른 사람 목소리·잡음 구간은 자동 제외 (실험: 화자 A 28초 + 화자 B 8초를 섞은 파일 → B 구간 제외, 남은 구간의 B 유사도 ≤0.39).
 
-| 아이디어 | 결과 |
+### 자동 학습 모드
+학습된 목소리로 **감정 세기·속도감(CFG)·억양 다양성(temperature)·참조 구간·정체성 혼합·음색 보정 세기·음색 기울기**를
+매번 다르게 바꿔 말해 보고, 원본과 가장 닮은 방식을 찾습니다. (표준: 5회차 × 회차당 100가지 = 새로 말하기 8번 × 디코더/음색 변형 12가지)
+- **판정**: 합성에 전혀 쓰이지 않는 독립 화자 인식 모델 **ECAPA**(SpeechBrain)를 중심으로, VoiceEncoder·CAMPPlus 유사도와
+  음높이·억양 폭·강세·리듬·스펙트럼 차이를 보조로 씀. (처음엔 VoiceEncoder/CAMPPlus만 썼는데, 보정값이 바로 그 임베딩을 바꾸기 때문에
+  점수만 오르고 실제로는 덜 닮아지는 "점수 속이기"가 생기는 것을 실험으로 확인해 바꿨습니다.)
+- **공정한 비교**: 모든 후보가 같은 문장·같은 난수로 말함(공통 난수). 디코더의 무작위 잡음도 원본 PyTorch처럼 고정해 같은 입력엔 같은 소리.
+- **재학습(되먹임)**: 회차마다 가장 닮은 결과들과 원본의 화자 임베딩 차이(평균)를 디코더용 보정값으로 쌓고, 다음 회차에서 그 세기를 탐색.
+- **검증**: 탐색에 쓰지 않은 **새 문장 4개**로 다시 말해 보고, 기본 설정보다 ECAPA 유사도가 **0.01 이상** 높을 때만 적용. 아니면 기본값 유지.
+- 음높이·속도 변환과 울림은 탐색하지 않습니다(포먼트가 바뀌어 새 문장에서 오히려 덜 닮는 것을 확인).
+- 다시 실행하면 이전 결과에서 이어서 학습합니다(warm start). 모드: 빠르게(3회차 × 새로 말하기 5번 × 변형 6) / 표준(5회차 × 8번 × 12) / 정밀(5회차 × 14번 × 6)
+
+### 전문가용 연출
+- **감정 10종 + 강도**: 기쁨·신남·슬픔·화남·차분·진지·다정·놀람·긴장·두려움
+- **문장별 자동 감정**: 따옴표 대사는 진하게, 서술은 절제해서. 문장 부호·감정 단어로 판단(규칙 기반)
+- **감정에 맞는 원본 구간 선택**: 활기찬 감정은 활기찬 구간, 차분한 감정은 차분한 구간을 참조
+- **부분 지정 태그**: `[기쁨:강]` `[속도:1.2]` `[높이:-2]` `[쉼:1.5]` `[울림:성당]` `[전화]` `[속삭임]` `[톤:따뜻하게]` `{NASA|나사}` `[/감정]` `[기본]`
+- **울림** 8종(방·스튜디오·욕실·무대·홀·성당·동굴), **상태** 8종(전화·라디오·확성기·멀리·가까이·속삭임·물속·로봇)
+- **배경**: 빗소리·바람·실내·백색소음 또는 내 음악/영상 파일, 말할 때 자동으로 작아지는 더킹
+- 방송용 마스터링, 발음 사전, MP3 64~192kbps
+- 비언어 소리 `[웃음]` `[한숨]` 등은 **실험적**(아래 6절 참고)
+
+## 4. 정확도·품질 검증 (모두 실측)
+
+| 항목 | 결과 |
 |---|---|
-| **모듈별 혼합 정밀도 압축**: 민감도 분석으로 디코더/플로우만 int8, 텍스트 인코더·posterior encoder는 fp16, STFT 기저는 fp32. BERT는 8bit 블록 양자화 + **int8 임베딩 Gather 재작성**(전체 테이블 역양자화 없이 필요한 행만) | 724MB → **212MB**. Whisper CER 1.88% → 2.14% (차이 미미). BERT 실행 메모리 증가분 +590MB → +130MB |
-| BERT 운율 특징 유지 (0으로 대체하지 않음) | BERT를 빼면 CER이 1.9% → 3.5%로 나빠져서 유지 |
-| BERT는 필요한 층만 (hidden_states[-3] = 10층) | 12층 → 10층 (마지막 2층 + MLM 헤드 제거) |
-| **mecab 증류**: g2pkk가 mecab에 의존하는 유일한 부분(용언 어간 `/P` 태그 → 경음화: 읽고[일꼬], 신고[신꼬])을 위키백과 190만 단어에 대한 mecab 판단에서 14KB 규칙표로 증류 | 원본(mecab) 프런트엔드와 **3,020문장 중 3,018문장 완전 일치** (불일치 2건은 mecab이 비표준 발음을 낸 경우) |
-| **문장별 원본 화자 임베딩 + 음색 강조(α=1.2)**: OpenVoice의 고정 kr.pth 대신 생성된 문장 자체의 임베딩을 원본으로 사용 | 화자 유사도(코사인) 3명 평균 **0.815 → 0.85**, CER 변화 없음 |
-| **리샘플러 튜닝**: 화자 인코더가 8–11kHz 대역에 민감함을 발견 (8kHz 저역통과 시 유사도 0.78) | 64 zero-crossing Kaiser 필터로 librosa/soxr와 임베딩 코사인 **0.998** (24탭은 0.958) |
-| **2단계 파이프라인**: BERT+MeloTTS(청크 i+1)와 음색 변환(청크 i)을 다른 스레드에서 동시 실행 | 4코어 서버: 순차 RTF 0.545 → **0.520**. 4+4 과할당은 0.669로 오히려 느려서, 코어의 절반씩 할당 |
-| 한국어 정규화 강화 | 원본 g2pkk는 "2024"를 "이영이사"로 읽고, 기호가 오면 KeyError로 중단됨 → 해결 |
+| Kotlin 토크나이저 = 원본(`tokenizers`) | 3,029문장 **100% 일치** |
+| Kotlin 음성 특징 = 파이썬 기준 | VoiceEncoder cos 1.000, CAMPPlus 0.997, 멜 0.99999, 음성 토큰 100%/98% |
+| Kotlin 생성 = 파이썬 기준 (같은 ONNX Runtime 1.31, 결정적 디코딩) | 84/84, 135/135 토큰 **완전 일치** |
+| ONNX 변환 = PyTorch 원본 | T3 로짓 일치(별도 검증), 4비트 압축 후 CER·유사도 변화 미미 |
+| DSP | 음높이 이동 오차 0.01% 이내, 속도 변경 길이 오차 0.1% 이내, 분할 컨볼루션 오차 6e-7 |
 
-### 정확도 검증 (Kotlin 엔진 = Python 원본)
-- 프런트엔드: Python(g2pkk+동일 규칙표)과 **3,020/3,020 문장 비트 단위 일치**, 문장당 0.7–1.9ms
-- 음성: 같은 입력에서 Kotlin과 Python의 MeloTTS 출력 SNR **232dB** (사실상 동일)
-- Kotlin 출력 20문장 Whisper(large-v3-turbo) **CER 2.46%** (오류 대부분은 Whisper가 "10월"처럼 숫자로 받아쓴 것)
-- 장문: 1,163자 → 43청크 → 172초 MP3, 처리 103초 (4코어 서버, RTF 0.60)
+### 학습 단계별 화자 유사도 (독립 평가: ECAPA vs 학습에 안 쓴 실제 음성, 학습에 안 쓴 문장 4개)
+화자 4명(한국어), 각 화자의 학습용 음성 24~31초, 평가: **학습에 안 쓴 문장 6개**를 같은 난수로 말하게 해 비교.
+판정: ECAPA(SpeechBrain, 앱의 자동 학습도 사용) + **WavLM-SV(앱이 전혀 사용하지 않는 완전 독립 판정자, 점수 범위가 0.95~0.98로 압축됨)**.
 
-## 4. 기기 요구 사항 / 예상 속도
-- **Android 8.0(API 26) 이상, 64비트 ARM(arm64-v8a), RAM 4GB 이상 권장** (모델 상주 메모리 약 0.6–0.8GB)
-- 저장 공간: full APK 228MB + 압축 해제된 모델 212MB (약 450MB)
-- 속도: 4코어 x86 서버 실측 RTF ≈ 0.5–0.6 (1분짜리 음성 ≈ 30–36초). **실제 휴대폰에서는 측정하지 못했습니다.**
-  최신 플래그십은 비슷하거나 1.5배, 보급형은 2–4배 느릴 것으로 예상합니다.
-  한국어 낭독은 초당 약 7자이므로 100,000자 ≈ 약 4시간 분량의 음성이고, 휴대폰에서는 수 시간이 걸립니다
-  (화면을 꺼도 계속되며 중단 후 이어서 생성 가능).
+| 단계 | ECAPA | WavLM-SV | CER | 비고 |
+|---|---|---|---|---|
+| 목소리 은행(기본값) | 0.788 | 0.968 | 1.6% | |
+| + 자동 학습(표준, 5회차×100) | **0.798** | **0.970** | 1.4% | 2명 적용(spk0 0.815→0.823, spk1 0.720→0.753), 2명은 검증 미통과로 기본값 유지(변화 없음) |
 
-## 5. 설치 및 사용
-1. `KoreanVoice-full.apk` 설치 (알 수 없는 앱 설치 허용 필요). 처음 실행 시 모델을 내부 저장소로 복사(수십 초).
-   - `KoreanVoice-lite.apk`(15MB)는 첫 실행 때 이 저장소의 `android/modelpack`에서 모델(212MB)을 내려받습니다.
-2. **목소리** 탭 → 목소리 추가 → 동의 체크 → *파일 선택*(내 파일, Google 드라이브, 다운로드 등. mp3/m4a/wav/flac/ogg) 또는 *녹음*
-   → 품질 점수 확인 → 저장. 10–30초의 깨끗한 음성이 좋고, 여러 파일을 넣으면 평균을 냅니다.
-3. **생성** 탭 → 목소리 선택 → 글 입력/붙여넣기/TXT 불러오기 (UTF-8, UTF-16, EUC-KR 자동 인식) → *미리듣기* → *MP3 만들기*.
-4. 완료된 MP3는 앱 보관함과 `음악/KoreanVoice` 폴더에 저장되고, *저장* 버튼으로 Google 드라이브 등에 내보낼 수 있습니다.
+- 개선 폭은 **크지 않습니다**(평균 +0.010). 대신 검증을 통과하지 못하면 적용하지 않으므로 나빠지지 않습니다.
+- 개발 중 실패도 기록합니다: 첫 버전(VoiceEncoder/CAMPPlus로만 판정, 음높이·속도 변환 포함)은 독립 평가에서 오히려
+  0.788 → 0.771로 **나빠졌고**, 원인(판정 모델 속이기, 포먼트 변화, 같은 문장으로 검증)을 고친 것이 현재 버전입니다.
+- 원본 Chatterbox 방식(첫 10초만 참조) 대비 목소리 은행(전체 구간 평균 + 대표 구간)의 차이는 4문장 평가에서 0.768 → 0.779로 측정됐지만 측정 잡음(±0.02) 안이라 단정하지 않습니다.
 
-## 6. 빌드 방법
+### 그 밖의 실측
+| 항목 | 결과 |
+|---|---|
+| 한국어 정규화 효과 | 숫자·영어를 그대로 넣으면 "2024년 5월 8일" → 엉뚱한 소리. 정규화 후 Whisper가 원문 그대로 받아씀 |
+| 태그 대본 장문(감정·쉼·성당 울림·전화·속삭임·속도/높이·읽는 법·빗소리 배경) | 11개 청크 → 49초 음성, 80초 소요(4코어 서버). 받아쓰기 결과 원문과 일치(속삭임 구간만 Whisper가 일부 오인식) |
+| 디코더 결정성 | 같은 토큰 재디코딩 SNR −2.9dB(원본 ONNX, 매번 다른 소리) → 38dB(고정 잡음 패치) |
+| 메모리(JVM, ONNX Runtime 1.31) | 엔진 로드 후 약 1.0GB, 장문 생성 중 최대 약 1.8GB, 목소리 학습 모델 추가 시 +0.2GB(학습 후 해제) |
+| T3·디코더 동시 실행(파이프라인) | 4코어에서는 오히려 느림(80초 → 110초) → 기본 꺼짐 |
+| 비언어 태그 [웃음]/[한숨] | 웃음·한숨 소리가 생성된다는 증거를 찾지 못함 → 실험 기능으로 표시 |
+| 속도 최적화 | 리샘플러 polyphase(521→20ms), 분석 재사용(638→88ms), 음높이 변환(607→39ms) — 결과 동일성 테스트 통과 |
+
+## 5. 기기 요구 사항 / 속도 (정직한 현황)
+- **Android 8.0 이상, 64비트 ARM, RAM 6GB 이상 권장** (8GB 이상이면 여유). 저장 공간 약 1.1GB.
+- 4코어 x86 서버(JVM) 실측: T3 약 40~47ms/토큰(초당 25토큰 = 음성 1초), 디코더 음성 1초당 약 0.55~0.65초,
+  효과·감정까지 포함한 장문 작업 **처리 시간 ≈ 음성 길이의 1.6배**. 목소리 학습(10초 구간 1개) 약 1~2초 + 분석.
+- **실제 휴대폰에서는 측정하지 못했습니다** (이 개발 환경에는 에뮬레이터/하드웨어 가속이 없음).
+  최신 플래그십은 서버와 비슷하거나 1.5배, 보급형은 2~3배 더 느릴 것으로 예상합니다.
+  100,000자 ≈ 음성 약 4시간 → 휴대폰에서 수~십여 시간 걸릴 수 있습니다(백그라운드 진행, 중단 후 이어하기 지원).
+- 자동 학습 '표준'(5회차×100): 4코어 서버 실측 **17~20분**/목소리 → 휴대폰은 약 35~60분 예상. '빠르게'는 서버 약 7분.
+
+## 6. 알려진 한계
+- 비언어 태그(`[웃음]`, `[한숨]`…)는 원본 모델이 한국어에서 이 소리를 안정적으로 내도록 학습됐는지 확인되지 않았습니다(아래 실험 결과). 실험 기능입니다.
+- 자동 감정은 규칙 기반이라 문맥을 완벽히 이해하지 못합니다. 중요한 부분은 태그로 지정하세요.
+- 배경 음악이 큰 영상, 여러 사람이 동시에 말하는 영상은 학습 품질이 떨어집니다.
+- 자동 학습 점수는 기기 안의 측정치이며, 사람이 듣는 느낌과 완전히 같지는 않습니다.
+
+## 7. 빌드 방법
 ```bash
 cd android
-# 코어 테스트 (프런트엔드 골든 테스트 + 정규화 테스트)
-./gradlew :core:test
-# 실제 모델로 엔드투엔드 테스트 (모델 디렉터리는 modelpack 조각을 합친 폴더)
-./gradlew :core:test -DmodelDir=/path/to/models -DgoldenDir=/path/to/golden -DoutDir=/tmp/out
-# APK (full: modelpack을 자산으로 포함 / lite: 첫 실행 시 다운로드)
-./gradlew :app:assembleFullRelease :app:assembleLiteRelease -PmodelBaseUrls="https://raw.githubusercontent.com/<owner>/<repo>/<ref>/android/modelpack"
+./gradlew :core:test                                   # 단위 테스트(정규화·태그·DSP 등)
+# 실제 모델로 검증 (모델 디렉터리 = modelpack 조각을 합친 폴더)
+./gradlew :core:test -DcbModelDir=/path/models -DcbGoldenDir=/path/golden -DkrefDir=/path/refs -DoutDir=/tmp/out
+./gradlew :app:assembleLiteRelease -PmodelBaseUrls="https://raw.githubusercontent.com/<owner>/<repo>/<ref>/android/modelpack"
 ```
-서명: `android/release.keystore`가 있으면 그것으로, 없으면 디버그 키로 서명합니다 (키스토어는 저장소에 올리지 않음).
-
-모델 재생성 (Python 3.11, torch CPU):
+모델 재생성(Python 3.11, torch CPU, `chatterbox-tts`):
 ```bash
-python tools/export_onnx.py        # PyTorch → ONNX (fp32), validate_onnx.py로 원본과 비교
-python tools/build_modelpack.py    # 혼합 정밀도 압축 → modelpack
-python tools/distill_p.py          # mecab-ko 판단 → p_table.tsv (python-mecab-ko 필요)
-python tools/make_golden.py mecab 3000   # 프런트엔드 골든 데이터
+python tools/chatterbox/export_t3.py OUT          # T3 → t3_lm.onnx(KV 캐시 + 정렬 어텐션 출력), t3_cond.onnx, 임베딩 표
+python tools/chatterbox/export_enc.py OUT ref.wav # S3 멜, CAMPPlus(+Kaldi fbank), VoiceEncoder 멜/LSTM
+python tools/chatterbox/compress_cb.py in.onnx out.onnx nb4   # 4비트(T3) / nb8_int8 / fp16 등
+python tools/chatterbox/build_pack.py OUT .       # 이름 정리 + 48MB 조각 + manifest
 ```
 
-## 7. 라이선스
-- 이 앱의 코드: MIT. 포함된 구성요소의 고지는 `app/src/main/assets/THIRD_PARTY_NOTICES.txt`.
-- OpenVoice V2, MeloTTS-Korean: MIT. g2pkk: Apache-2.0. CMUdict: BSD. Unihan: Unicode License. ONNX Runtime: MIT.
-- jump3r(LAME 자바 이식): LGPL-2.1+, 수정 없이 라이브러리로 사용하고 앱 전체 소스를 공개하여 교체 가능.
-- **kykim/bert-kor-base**: Apache-2.0으로 배포되지만 저작자가 "모델의 상업적 사용은 MOU를 통해 무료로 가능하니
-  kykim@artificial.sc로 문의"하라고 안내합니다. **개인·비상업적 사용은 문제없지만, 상업적으로 배포하려면 먼저 문의하세요.**
-- 음성 복제는 본인 또는 동의받은 사람의 목소리에만 사용하세요. 생성 MP3에는 ID3 태그로 'AI 생성 음성'이 기록됩니다.
-
-## 8. 안드로이드 테스트 기록 (정직한 현황)
-테스트 서버에는 하드웨어 가속(KVM)이 없어 Android 14 에뮬레이터를 **소프트웨어 에뮬레이션**으로 실행했습니다 (부팅 13–23분).
-
-| 단계 | 결과 |
-|---|---|
-| APK 설치 (lite debug, x86_64) | ✅ 성공 (full APK 260MB는 설치 중 에뮬레이터 시스템 워치독이 system_server를 재시작시켜 실패 → 모델을 직접 복사) |
-| 앱 실행 · 모델 확인 화면 → 메인 화면 | ✅ 정상 (아래 스크린샷) |
-| 한국어 UI, 텍스트 주입 | ✅ 정상 |
-| ONNX Runtime 세션 4개(BERT·MeloTTS·추출기·변환기) 로드 | ✅ 안드로이드에서 로드 완료 |
-| 미리듣기 합성 | ❌ → 🔧 **안드로이드 전용 버그 발견**: 안드로이드 정규식(ICU)은 `Pattern.UNICODE_CHARACTER_CLASS`를 지원하지 않음. `[^\p{L}\p{N}_]`로 바꿔 수정하고, JVM 골든 테스트로 결과가 동일함(3,020/3,020)을 확인. 수정 후 에뮬레이터 재검증은 에뮬레이터가 부팅 중에도 워치독 재시작을 반복해 완료하지 못함 |
-
-<img src="docs/screenshot_main.png" width="300" alt="메인 화면">
-
-엔진 로직(텍스트 처리 → BERT → MeloTTS → 음색 변환 → MP3)은 안드로이드와 같은 ONNX Runtime 1.31 API로 JVM에서 실제 모델을
-돌려 검증했습니다 (3절). **실제 휴대폰에서의 합성 속도와 동작은 아직 확인되지 않았으니, 설치 후 문제가 있으면 오류 메시지를 알려 주세요.**
-
-## 9. 알려진 한계
-- 여러 사람의 목소리가 섞이거나 배경 음악이 큰 샘플은 결과가 나빠집니다.
-- OpenVoice 특성상 억양·말투보다 **음색** 복제에 강하고, 말투는 MeloTTS 한국어 기본 화자를 따릅니다.
+## 8. 라이선스
+- 이 앱의 코드: MIT. 구성요소 고지: `app/src/main/assets/THIRD_PARTY_NOTICES.txt`
+- Chatterbox Multilingual / Chatterbox-Turbo 디코더: MIT (Resemble AI). S3 토크나이저·CAMPPlus·HiFT(CosyVoice 계열): Apache-2.0.
+- 원본 Chatterbox는 생성 음성에 PerTh 워터마크를 넣지만, 이 앱은 대신 MP3 ID3 태그에 'AI 생성 음성'을 기록합니다.
+- jump3r(LAME 자바 이식): LGPL-2.1+, 수정 없이 사용하고 앱 전체 소스를 공개.
+- 음성 복제는 **본인 또는 동의받은 사람의 목소리에만** 사용하세요.

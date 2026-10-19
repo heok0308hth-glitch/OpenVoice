@@ -127,6 +127,7 @@ class ExpressiveJob(
     }
 
     fun render(isCancelled: () -> Boolean = { false }, onProgress: (Progress) -> Unit = {}) {
+        jobDir.mkdirs()                                  // may have been removed by deleteCache()
         val cs = chunks
         val todo = cs.indices.filter { !chunkFile(it).exists() }
         val totalChars = cs.sumOf { it.text.length }.coerceAtLeast(1)
@@ -234,7 +235,9 @@ class ExpressiveJob(
             val n = (upTo - origin).toInt()
             if (n < SR * 2) return
             sink(post(buf.copyOf(n)))
-            buf = buf.copyOfRange(n, buf.size).copyOf(max(buf.size - n, SR * 30)); origin = upTo
+            // a long pause can move the cursor past the end of the buffer
+            buf = if (n >= buf.size) FloatArray(SR * 30) else buf.copyOfRange(n, buf.size).copyOf(max(buf.size - n, SR * 30))
+            origin = upTo
         }
         fun finish(tail: Int) {
             val end = (cursor - origin).toInt() + tail

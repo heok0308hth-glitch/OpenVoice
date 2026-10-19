@@ -57,12 +57,13 @@ object AppGraph {
         return when (mode) {
             PerformanceMode.SAVER -> 2
             PerformanceMode.BALANCED -> minOf(4, cores)
-            PerformanceMode.MAX -> if (cores >= 8) cores / 2 else minOf(6, maxOf(2, cores - 2))
+            PerformanceMode.MAX -> minOf(6, maxOf(2, cores - 2))
         }
     }
 
     /** In MAX mode on 8+ core phones, T3 and the decoder run concurrently (each with half the cores). */
-    fun pipelined(): Boolean = settings.performanceMode == PerformanceMode.MAX && Runtime.getRuntime().availableProcessors() >= 8
+    // measured slower on a 4-core machine (2 sessions oversubscribe the CPU); benefit on 8-core phones unverified → off
+    fun pipelined(): Boolean = false
 
     /** Lazily create the (heavy) inference engine; recreated when performance mode / decoder change. */
     @Synchronized

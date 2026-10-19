@@ -223,25 +223,26 @@ private fun LearnDialog(vm: MainViewModel, voiceId: String?, onClose: () -> Unit
 private fun AutoLearnDialog(v: VoiceInfo, onClose: () -> Unit) {
     val ctx = LocalContext.current
     val modes = listOf(
-        Triple("빠르게", AutoTuner.Config.QUICK, "3회차 × 30가지 (생성 6개/회차)"),
-        Triple("표준", AutoTuner.Config.STANDARD, "5회차 × 100가지 (생성 10개/회차)"),
-        Triple("정밀", AutoTuner.Config.PRECISE, "5회차 × 100가지 (생성 20개/회차)"),
+        Triple("빠르게", AutoTuner.Config.QUICK, "3회차 × 30가지 (새로 말하기 5번 × 디코더·음색 변형 6가지)"),
+        Triple("표준", AutoTuner.Config.STANDARD, "5회차 × 96가지 (새로 말하기 8번 × 디코더·음색 변형 12가지)"),
+        Triple("정밀", AutoTuner.Config.PRECISE, "5회차 × 84가지 (새로 말하기 14번 × 디코더·음색 변형 6가지)"),
     )
     var mode by remember { mutableStateOf(1) }
     AlertDialog(onDismissRequest = onClose, title = { Text("자동 학습: ${v.name}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("학습된 목소리로 감정 세기·말 속도감·억양 변화·참조 구간·음색 혼합·음높이·음색 기울기·말 빠르기·울림을 매번 다르게 바꿔 가며 말해 보고, " +
-                    "두 가지 화자 인식 모델과 음높이·억양·강세·리듬·스펙트럼 분석으로 원본과 가장 닮은 방식을 찾습니다. " +
-                    "회차가 끝날 때마다 가장 닮은 결과와 원본의 차이를 목소리에 되먹여(재학습) 다음 회차는 그 주변을 더 촘촘히 탐색합니다. " +
-                    "마지막에 새 표본으로 다시 검증해, 실제로 나아진 경우에만 적용합니다.", style = MaterialTheme.typography.bodySmall)
+                Text("학습된 목소리로 감정 세기·말 속도감·억양 변화·참조 구간·음색 혼합·음색 보정 세기·음색 기울기를 매번 다르게 바꿔 가며 말해 보고, " +
+                    "세 가지 화자 인식 모델(합성에 쓰이지 않는 독립 판정 모델 ECAPA 중심)과 음높이·억양·강세·리듬·스펙트럼 분석으로 원본과 가장 닮은 방식을 찾습니다. " +
+                    "회차가 끝날 때마다 가장 닮은 결과들과 원본의 차이를 목소리 보정값으로 되먹여(재학습) 다음 회차는 그 주변을 더 촘촘히 탐색합니다. " +
+                    "마지막에 탐색에 쓰지 않은 새 문장으로 다시 검증해, 분명히 나아진 경우에만 적용합니다(아니면 기본값 유지).", style = MaterialTheme.typography.bodySmall)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     modes.forEachIndexed { i, m -> FilterChip(selected = mode == i, onClick = { mode = i }, label = { Text(m.first) }) }
                 }
                 val m = modes[mode]
                 Text(m.third, style = MaterialTheme.typography.bodyMedium)
-                val gens = m.second.rounds * m.second.generativePerRound + 1 + 2 * AutoTuner.VERIFY_RUNS
-                Text("휴대폰에서 대략 ${gens * 15 / 60}~${gens * 35 / 60}분 걸립니다(기기 성능에 따라 다름). 충전 중에 실행하는 것을 권장합니다.", style = MaterialTheme.typography.bodySmall)
+                // measured on a 4-core server: ≈25 s per generated delivery incl. its variants; phones ≈2–3× slower (estimate)
+                val gens = m.second.rounds * m.second.generativePerRound + 3
+                Text("휴대폰에서 대략 ${gens * 25 * 2 / 60}~${gens * 25 * 3 / 60}분 걸릴 것으로 예상합니다(4코어 서버 실측 ${gens * 25 / 60}분 기준). 충전 중에 실행하는 것을 권장합니다.", style = MaterialTheme.typography.bodySmall)
                 HorizontalDivider()
                 Text("※ 점수는 기기 안의 측정치이며 사람이 듣는 느낌과 완전히 같지는 않습니다.", style = MaterialTheme.typography.bodySmall)
             }

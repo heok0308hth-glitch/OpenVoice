@@ -86,6 +86,7 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
     // voice-registration / analysis models are loaded on demand (only needed when learning a voice)
     private var tokS: OrtSession? = null; private var campS: OrtSession? = null; private var melS: OrtSession? = null
     private var veMelS: OrtSession? = null; private var veLstmS: OrtSession? = null
+    private var ecapaS: OrtSession? = null
 
     private fun session(name: String): OrtSession {
         val f = File(dir, name); require(f.exists()) { "모델 파일이 없습니다: $name" }
@@ -106,12 +107,20 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
     @Synchronized private fun mel() = melS ?: session("s3_mel.onnx").also { melS = it }
     @Synchronized private fun veMel() = veMelS ?: session("ve_mel.onnx").also { veMelS = it }
     @Synchronized private fun veLstm() = veLstmS ?: session("ve_lstm.onnx").also { veLstmS = it }
+    @Synchronized private fun ecapaSession() = ecapaS ?: session("ecapa.onnx").also { ecapaS = it }
+
+    /**
+     * SpeechBrain ECAPA-TDNN speaker embedding (192, unit length) of 16 kHz audio. Synthesis is never
+     * conditioned on it, so it serves as an independent judge of voice similarity for auto-learning.
+     */
+    fun ecapa(wav16: FloatArray): FloatArray = normalize(run1(ecapaSession(), "wav", wav16))
+    fun hasEcapa() = File(dir, "ecapa.onnx").exists()
 
     /** Release the registration models (≈300 MB) after learning a voice. */
     @Synchronized
     fun releaseRegistrationModels() {
-        listOf(tokS, campS, melS, veMelS, veLstmS).forEach { it?.close() }
-        tokS = null; campS = null; melS = null; veMelS = null; veLstmS = null
+        listOf(tokS, campS, melS, veMelS, veLstmS, ecapaS).forEach { it?.close() }
+        tokS = null; campS = null; melS = null; veMelS = null; veLstmS = null; ecapaS = null
     }
 
     fun speechTokens(wav24: FloatArray): LongArray {
@@ -346,7 +355,7 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
         const val DECODER_FAST = "s3gen_turbo.onnx"
         const val DECODER_HQ = "s3gen_hq.onnx"
         val MODEL_FILES = listOf("t3_lm.onnx", "t3_cond.onnx", "t3_embed.bin", "t3_embed.json", "tokenizer.json",
-            "s3_tokenizer.onnx", "campplus.onnx", "s3_mel.onnx", "ve_mel.onnx", "ve_lstm.onnx", DECODER_FAST)
+            "s3_tokenizer.onnx", "campplus.onnx", "s3_mel.onnx", "ve_mel.onnx", "ve_lstm.onnx", "ecapa.onnx", DECODER_FAST)
 
         fun normalize(v: FloatArray): FloatArray { var n = 0.0; for (x in v) n += x * x; val s = (1 / sqrt(n)).toFloat(); return FloatArray(v.size) { v[it] * s } }
 

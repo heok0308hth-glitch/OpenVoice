@@ -2,13 +2,16 @@
 for raw GitHub hosting, write modelpack/manifest.json and the app's asset manifest.
 usage: build_pack.py <export_dir> <android_dir>
   export_dir must contain: t3_lm_q4.onnx t3_cond_fp16.onnx t3_embed.bin t3_embed.json tokenizer.json
-  s3_tokenizer_c.onnx campplus_fp16.onnx s3_mel.onnx ve_mel.onnx ve_lstm.onnx dec_turbo_nb8.onnx dec_std_nb8.onnx"""
+  s3_tokenizer_c.onnx campplus_fp16.onnx s3_mel.onnx ve_mel.onnx ve_lstm.onnx ecapa_fp16.onnx
+  s3gen_turbo_det.onnx s3gen_hq_det.onnx (dec_turbo_nb8 / dec_std_nb8 after fix_decoder_noise.py)"""
 import sys, os, json, hashlib, shutil
 E, A = sys.argv[1], sys.argv[2]
 NAMES = {"t3_lm.onnx": "t3_lm_q4.onnx", "t3_cond.onnx": "t3_cond_fp16.onnx", "t3_embed.bin": "t3_embed.bin",
          "t3_embed.json": "t3_embed.json", "tokenizer.json": "tokenizer.json", "s3_tokenizer.onnx": "s3_tokenizer_c.onnx",
          "campplus.onnx": "campplus_fp16.onnx", "s3_mel.onnx": "s3_mel.onnx", "ve_mel.onnx": "ve_mel.onnx",
-         "ve_lstm.onnx": "ve_lstm.onnx", "s3gen_turbo.onnx": "dec_turbo_nb8.onnx", "s3gen_hq.onnx": "dec_std_nb8.onnx"}
+         "ve_lstm.onnx": "ve_lstm.onnx", "ecapa.onnx": "ecapa_fp16.onnx",
+         # decoders after fix_decoder_noise.py (fixed CFM noise like the original PyTorch code)
+         "s3gen_turbo.onnx": "s3gen_turbo_det.onnx", "s3gen_hq.onnx": "s3gen_hq_det.onnx"}
 PART = 48 * 1000 * 1000
 D = f"{A}/modelpack"
 if os.path.isdir(D): shutil.rmtree(D)
