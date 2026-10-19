@@ -1,35 +1,108 @@
 {
- "version": 1,
+ "version": 2,
+ "engine": "chatterbox-multilingual",
  "files": {
-  "bert_kr.onnx": {
-   "size": 108543926,
-   "sha256": "cece021a13c4b8e769f26adabbce6ad053cbd510695c9369f0ff2ba40c6ecbff",
+  "t3_lm.onnx": {
+   "size": 320454877,
+   "sha256": "8ce11bd2d71694aad155aa09665c50066954135313ae724db1c6bc555cc43d4b",
    "parts": [
-    "bert_kr.onnx.part0",
-    "bert_kr.onnx.part1",
-    "bert_kr.onnx.part2"
+    "t3_lm.onnx.part0",
+    "t3_lm.onnx.part1",
+    "t3_lm.onnx.part2",
+    "t3_lm.onnx.part3",
+    "t3_lm.onnx.part4",
+    "t3_lm.onnx.part5",
+    "t3_lm.onnx.part6"
    ]
   },
-  "melo_kr.onnx": {
-   "size": 52492044,
-   "sha256": "9d44badae405c852e6fb2414c1c45d37f032e113b142ae993b29068f4c89296a",
+  "t3_cond.onnx": {
+   "size": 34225780,
+   "sha256": "315ac00604e958547ab1e4950fbcad0f923059fda914992bcc449ee98087b41c",
    "parts": [
-    "melo_kr.onnx.part0",
-    "melo_kr.onnx.part1"
+    "t3_cond.onnx.part0"
    ]
   },
-  "tone_extract.onnx": {
-   "size": 5845131,
-   "sha256": "c1ac4448cac7bf9e132218bbd33384d63f56f7a8bfcfd614db1824b87cd46104",
+  "t3_embed.bin": {
+   "size": 34402304,
+   "sha256": "34846035fe39e6f7a29255634298c08ec1b10e9d993e94a78db055ec53e1eef2",
    "parts": [
-    "tone_extract.onnx.part0"
+    "t3_embed.bin.part0"
    ]
   },
-  "tone_convert.onnx": {
-   "size": 45624288,
-   "sha256": "929a0dc809b0576c447fb888aef83f28dc4d27719e0614a6b02f91184804ff11",
+  "t3_embed.json": {
+   "size": 424,
+   "sha256": "7e24d08644875754035baa317f6e8d0571b21dcd48e13d97db60dec1fe9a4a6f",
    "parts": [
-    "tone_convert.onnx.part0"
+    "t3_embed.json.part0"
+   ]
+  },
+  "tokenizer.json": {
+   "size": 69989,
+   "sha256": "69632f47220a788a52ce2661d096453c5655e9bf25289d89a8d832c46ee07dbf",
+   "parts": [
+    "tokenizer.json.part0"
+   ]
+  },
+  "s3_tokenizer.onnx": {
+   "size": 248323790,
+   "sha256": "562875165643ea59b1757d095b9ec3508eedabfbe5d6aeed972fd86b60cb3665",
+   "parts": [
+    "s3_tokenizer.onnx.part0",
+    "s3_tokenizer.onnx.part1",
+    "s3_tokenizer.onnx.part2",
+    "s3_tokenizer.onnx.part3",
+    "s3_tokenizer.onnx.part4",
+    "s3_tokenizer.onnx.part5"
+   ]
+  },
+  "campplus.onnx": {
+   "size": 15835280,
+   "sha256": "e5166ef1e5b430aec35880a595725198e7dad5c4ead78fa3d7cf916087441755",
+   "parts": [
+    "campplus.onnx.part0"
+   ]
+  },
+  "s3_mel.onnx": {
+   "size": 15071926,
+   "sha256": "2f923c39d7cd40dc0ca872fc197e12f3676adf2c12be2d2ad2f98b2716573234",
+   "parts": [
+    "s3_mel.onnx.part0"
+   ]
+  },
+  "ve_mel.onnx": {
+   "size": 678427,
+   "sha256": "251328491a007f6f2eed22d8ea2009583019757b3d7c56939e28e0a39a236fe6",
+   "parts": [
+    "ve_mel.onnx.part0"
+   ]
+  },
+  "ve_lstm.onnx": {
+   "size": 5700068,
+   "sha256": "05a0095e1a4a69f63fb61d125467c2f6f49d3f8e9e7e3c1b5b117de0aa761748",
+   "parts": [
+    "ve_lstm.onnx.part0"
+   ]
+  },
+  "s3gen_turbo.onnx": {
+   "size": 244277151,
+   "sha256": "d9bd965bd8dc13c4fb8f9c3f8302dd1ce4853505d1a7924b2da78b6862293263",
+   "parts": [
+    "s3gen_turbo.onnx.part0",
+    "s3gen_turbo.onnx.part1",
+    "s3gen_turbo.onnx.part2",
+    "s3gen_turbo.onnx.part3",
+    "s3gen_turbo.onnx.part4",
+    "s3gen_turbo.onnx.part5"
+   ]
+  },
+  "s3gen_hq.onnx": {
+   "size": 186921429,
+   "sha256": "a38239c84a8990c91ed27b9d237534a9759b8fd8b120f421ddb7f6890445d191",
+   "parts": [
+    "s3gen_hq.onnx.part0",
+    "s3gen_hq.onnx.part1",
+    "s3gen_hq.onnx.part2",
+    "s3gen_hq.onnx.part3"
    ]
   }
  }

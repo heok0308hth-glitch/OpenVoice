@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.koreanvoice.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
         ndk { abiFilters += listOf("arm64-v8a") }
         // Model pack location for the "lite" flavor (downloaded once, then used offline).
         buildConfigField("String", "MODEL_BASE_URLS", "\"${project.findProperty("modelBaseUrls") ?: ""}\"")
@@ -112,7 +112,8 @@ val joinModelParts by tasks.registering {
         val manifest = groovy.json.JsonSlurper().parse(File(packDir, "manifest.json")) as Map<*, *>
         val out = modelAssetsDir.get().asFile.resolve("models").apply { mkdirs() }
         @Suppress("UNCHECKED_CAST")
-        (manifest["files"] as Map<String, Map<String, Any>>).forEach { (name, info) ->
+        // the optional high-quality decoder is never bundled (downloaded on demand from the app)
+        (manifest["files"] as Map<String, Map<String, Any>>).filterKeys { it != "s3gen_hq.onnx" }.forEach { (name, info) ->
             File(out, name).outputStream().use { o ->
                 (info["parts"] as List<String>).forEach { p -> File(packDir, p).inputStream().use { it.copyTo(o) } }
             }
