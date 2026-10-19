@@ -7,6 +7,18 @@
 
 ---
 
+## 0. APK 다운로드
+
+| 파일 | 크기 | 설명 |
+|---|---|---|
+| KoreanVoice-full.apk | 228MB | 모델 내장판. GitHub 단일 파일 한도(100MB)와 포크 저장소의 LFS 업로드 제한 때문에 저장소에는 올릴 수 없음 → `./gradlew :app:assembleFullRelease`로 빌드하거나 따로 전달받은 파일 사용 |
+| [**KoreanVoice-lite.apk**](https://github.com/heok0308hth-glitch/OpenVoice/raw/claude/openvoice-android-tts-cyy4y6/android/release/KoreanVoice-lite.apk) | 15MB | **여기서 바로 다운로드.** 첫 실행 때 이 저장소의 `android/modelpack`에서 모델(212MB)을 1회 받은 뒤 오프라인 동작 |
+
+휴대폰 브라우저에서 링크를 열어 받은 뒤 설치하세요 (설정에서 '출처를 알 수 없는 앱 설치' 허용 필요).
+두 앱은 패키지 이름이 달라 동시에 설치할 수 있습니다.
+
+---
+
 ## 1. OpenVoice 조사 결과 (실제로 확인한 내용)
 
 | 항목 | 확인 결과 |
@@ -78,7 +90,6 @@ tone_convert.onnx (OpenVoice 음색 변환)  ◄── 목소리 프로필(SE, t
 ## 5. 설치 및 사용
 1. `KoreanVoice-full.apk` 설치 (알 수 없는 앱 설치 허용 필요). 처음 실행 시 모델을 내부 저장소로 복사(수십 초).
    - `KoreanVoice-lite.apk`(15MB)는 첫 실행 때 이 저장소의 `android/modelpack`에서 모델(212MB)을 내려받습니다.
-     **이 브랜치가 GitHub에 푸시되어 있어야 동작합니다.**
 2. **목소리** 탭 → 목소리 추가 → 동의 체크 → *파일 선택*(내 파일, Google 드라이브, 다운로드 등. mp3/m4a/wav/flac/ogg) 또는 *녹음*
    → 품질 점수 확인 → 저장. 10–30초의 깨끗한 음성이 좋고, 여러 파일을 넣으면 평균을 냅니다.
 3. **생성** 탭 → 목소리 선택 → 글 입력/붙여넣기/TXT 불러오기 (UTF-8, UTF-16, EUC-KR 자동 인식) → *미리듣기* → *MP3 만들기*.

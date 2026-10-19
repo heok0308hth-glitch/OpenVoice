@@ -5,9 +5,9 @@ build/
 .idea/
 *.iml
 release.keystore
-release/KoreanVoice-full.apk
 release/sample_*.mp3
 release/*.apk
+!release/KoreanVoice-lite.apk
 release/*.png
 release/*.bundle
 release/*.zip
