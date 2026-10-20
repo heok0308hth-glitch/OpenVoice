@@ -35,18 +35,29 @@ object AudioDecoder {
     fun decodeWindows(context: Context, uri: Uri, windowSeconds: Int = 60, maxSeconds: Int = 1200,
                       onWindow: (FloatArray, Int, Boolean) -> Unit) {
         val ex = MediaExtractor()
-        ex.setDataSource(context, uri, null)
-        val track = (0 until ex.trackCount).firstOrNull {
-            ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
-        } ?: run { ex.release(); error("오디오 트랙을 찾을 수 없습니다") }
-        ex.selectTrack(track)
-        val fmt = ex.getTrackFormat(track)
-        val mime = fmt.getString(MediaFormat.KEY_MIME)!!
+        val codec: MediaCodec
+        val fmt: MediaFormat
+        try {
+            try {
+                ex.setDataSource(context, uri, null)
+            } catch (e: Exception) {
+                // some providers (cloud files) only work through a file descriptor
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { ex.setDataSource(it) }
+                    ?: throw IllegalStateException("파일을 열 수 없습니다", e)
+            }
+            val track = (0 until ex.trackCount).firstOrNull {
+                ex.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            } ?: error("오디오 트랙을 찾을 수 없습니다")
+            ex.selectTrack(track)
+            fmt = ex.getTrackFormat(track)
+            val mime = fmt.getString(MediaFormat.KEY_MIME) ?: error("오디오 형식을 알 수 없습니다")
+            codec = runCatching { MediaCodec.createDecoderByType(mime) }.getOrElse { error("이 기기에서 지원하지 않는 오디오 형식입니다 ($mime)") }
+            try { codec.configure(fmt, null, null, 0); codec.start() } catch (e: Exception) { codec.release(); throw e }
+        } catch (e: Exception) {
+            ex.release(); throw e
+        }
         var sampleRate = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-        var channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-        val codec = MediaCodec.createDecoderByType(mime)
-        codec.configure(fmt, null, null, 0)
-        codec.start()
+        var channels = fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
         val out = FloatList()
         var emitted = 0L
         val info = MediaCodec.BufferInfo()
@@ -73,7 +84,7 @@ object AudioDecoder {
                     outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         val of = codec.outputFormat
                         sampleRate = of.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                        channels = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        channels = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
                         pcmFloat = of.containsKey(MediaFormat.KEY_PCM_ENCODING) &&
                             of.getInteger(MediaFormat.KEY_PCM_ENCODING) == android.media.AudioFormat.ENCODING_PCM_FLOAT
                     }

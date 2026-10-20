@@ -14,6 +14,7 @@ import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import java.nio.ShortBuffer
 import java.nio.channels.FileChannel
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -75,34 +76,66 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
         setIntraOpNumThreads(threads); setInterOpNumThreads(1)
         setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
     }
-    private val lm = session("t3_lm.onnx")
-    private val cond = session("t3_cond.onnx")
-    private var dec: OrtSession = session(decoderFile)
-    private var decName = decoderFile
+    // ORT's graph optimizers fold the fp16→fp32 weight casts of the fp16 tokenizer into fp32 constants,
+    // growing it from ≈250 MB to ≈600 MB resident. Unoptimized it gives identical tokens, ~15% slower.
+    private val plainOpts = OrtSession.SessionOptions().apply {
+        setIntraOpNumThreads(threads); setInterOpNumThreads(1)
+        setOptimizationLevel(OrtSession.SessionOptions.OptLevel.NO_OPT)
+    }
     val tokenizer = CbTokenizer(File(dir, "tokenizer.json").readText())
-    private val tables = EmbeddingTables(File(dir, "t3_embed.bin"), File(dir, "t3_embed.json").readText())
-    private val lmOut: List<String> = lm.outputNames.toList()
+
+    // synthesis models are loaded on first use so that learning a voice never holds them (≈1 GB)
+    private var lmS: OrtSession? = null; private var condS: OrtSession? = null; private var decS: OrtSession? = null
+    private var tablesS: EmbeddingTables? = null
+    private var decName = decoderFile
+    private val lm: OrtSession @Synchronized get() = lmS ?: session("t3_lm.onnx").also { lmS = it }
+    private val cond: OrtSession @Synchronized get() = condS ?: session("t3_cond.onnx").also { condS = it }
+    private val dec: OrtSession @Synchronized get() = decS ?: session(decName).also { decS = it }
+    private val tables: EmbeddingTables @Synchronized get() = tablesS
+        ?: EmbeddingTables(File(dir, "t3_embed.bin"), File(dir, "t3_embed.json").readText()).also { tablesS = it }
+    private val lmOut: List<String> by lazy { lm.outputNames.toList() }
+    // calls running now on any thread; a model group is only released while its counter is zero
+    private val synBusy = AtomicInteger(); private val regBusy = AtomicInteger()
+    private inline fun <T> busy(c: AtomicInteger, block: () -> T): T {
+        c.incrementAndGet()
+        try { return block() } finally { c.decrementAndGet() }
+    }
 
     // voice-registration / analysis models are loaded on demand (only needed when learning a voice)
     private var tokS: OrtSession? = null; private var campS: OrtSession? = null; private var melS: OrtSession? = null
     private var veMelS: OrtSession? = null; private var veLstmS: OrtSession? = null
     private var ecapaS: OrtSession? = null
 
-    private fun session(name: String): OrtSession {
+    private fun session(name: String, o: OrtSession.SessionOptions = opts): OrtSession {
         val f = File(dir, name); require(f.exists()) { "모델 파일이 없습니다: $name" }
-        return env.createSession(f.path, opts)
+        return env.createSession(f.path, o)
     }
 
     @Synchronized
     fun useDecoder(name: String) {
         if (name == decName) return
-        dec.close(); dec = session(name); decName = name
+        decS?.close(); decS = null; decName = name
+    }
+
+    /**
+     * Release the synthesis models; they are reloaded on the next generate/decode. Skipped (returns
+     * false) while a generate/decode is running on another thread, so a session is never closed mid-run.
+     */
+    @Synchronized
+    fun releaseSynthesisModels(): Boolean {
+        if (synBusy.get() > 0) return false
+        closeSynthesis(); return true
+    }
+
+    private fun closeSynthesis() {
+        listOf(lmS, condS, decS).forEach { runCatching { it?.close() } }; runCatching { tablesS?.close() }
+        lmS = null; condS = null; decS = null; tablesS = null
     }
 
     fun hasDecoder(name: String) = File(dir, name).exists()
 
     // ------------------------------------------------------------------ voice registration
-    @Synchronized private fun tok() = tokS ?: session("s3_tokenizer.onnx").also { tokS = it }
+    @Synchronized private fun tok() = tokS ?: session("s3_tokenizer.onnx", plainOpts).also { tokS = it }
     @Synchronized private fun camp() = campS ?: session("campplus.onnx").also { campS = it }
     @Synchronized private fun mel() = melS ?: session("s3_mel.onnx").also { melS = it }
     @Synchronized private fun veMel() = veMelS ?: session("ve_mel.onnx").also { veMelS = it }
@@ -113,28 +146,38 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
      * SpeechBrain ECAPA-TDNN speaker embedding (192, unit length) of 16 kHz audio. Synthesis is never
      * conditioned on it, so it serves as an independent judge of voice similarity for auto-learning.
      */
-    fun ecapa(wav16: FloatArray): FloatArray = normalize(run1(ecapaSession(), "wav", wav16))
+    fun ecapa(wav16: FloatArray): FloatArray = busy(regBusy) { normalize(run1(ecapaSession(), "wav", wav16)) }
     fun hasEcapa() = File(dir, "ecapa.onnx").exists()
 
-    /** Release the registration models (≈300 MB) after learning a voice. */
+    /**
+     * Release the registration models (≈450 MB) once voices are built / learned; reloaded on demand.
+     * Skipped (returns false) while one of them is running on another thread.
+     */
     @Synchronized
-    fun releaseRegistrationModels() {
-        listOf(tokS, campS, melS, veMelS, veLstmS, ecapaS).forEach { it?.close() }
+    fun releaseRegistrationModels(): Boolean {
+        if (regBusy.get() > 0) return false
+        closeRegistration(); return true
+    }
+
+    private fun closeRegistration() {
+        listOf(tokS, campS, melS, veMelS, veLstmS, ecapaS).forEach { runCatching { it?.close() } }
         tokS = null; campS = null; melS = null; veMelS = null; veLstmS = null; ecapaS = null
     }
 
-    fun speechTokens(wav24: FloatArray): LongArray {
-        return tensor(wav24, longArrayOf(1, wav24.size.toLong())).use { t ->
+    fun speechTokens(wav24: FloatArray): LongArray = busy(regBusy) {
+        tensor(wav24, longArrayOf(1, wav24.size.toLong())).use { t ->
             tok().run(mapOf("audio_values" to t)).use { r -> (r[0] as OnnxTensor).longBuffer.toArr() }
         }
     }
 
-    fun xvector(wav16: FloatArray): FloatArray = run1(camp(), "wav", wav16)
+    fun xvector(wav16: FloatArray): FloatArray = busy(regBusy) { run1(camp(), "wav", wav16) }
 
-    fun s3Mel(wav24: FloatArray): FloatArray = run1(mel(), "wav", wav24)
+    fun s3Mel(wav24: FloatArray): FloatArray = busy(regBusy) { run1(mel(), "wav", wav24) }
 
     /** VoiceEncoder embedding: trim(top_db=20) → mel → 160-frame partials (50% overlap) → LSTM → mean → L2. */
-    fun veEmbed(wav16: FloatArray): FloatArray {
+    fun veEmbed(wav16: FloatArray): FloatArray = busy(regBusy) { veEmbedImpl(wav16) }
+
+    private fun veEmbedImpl(wav16: FloatArray): FloatArray {
         val y = trimDb(wav16, 20.0)
         val mel = run1(veMel(), "wav", y)
         val n = mel.size / 40
@@ -178,6 +221,10 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
 
     /** T3: text → speech tokens. Returns tokens and whether the alignment checks forced the stop. */
     fun generate(text: String, voice: CbVoice, p: CbParams, cancel: () -> Boolean = { false }): Pair<LongArray, Boolean> {
+        return busy(synBusy) { generateImpl(text, voice, p, cancel) }
+    }
+
+    private fun generateImpl(text: String, voice: CbVoice, p: CbParams, cancel: () -> Boolean): Pair<LongArray, Boolean> {
         val body = tokenizer.encodeKorean(CbTokenizer.puncNorm(text))
         val tt = IntArray(body.size + 2); tt[0] = START_TEXT; System.arraycopy(body, 0, tt, 1, body.size); tt[tt.size - 1] = STOP_TEXT
         val condEmb = tensor(voice.ve, longArrayOf(1, 256)).use { ve ->
@@ -248,6 +295,10 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
     /** S3Gen: speech tokens → 24 kHz waveform. */
     fun decode(tokens: LongArray, voice: CbVoice): FloatArray {
         if (tokens.isEmpty()) return FloatArray(0)
+        return busy(synBusy) { decodeImpl(tokens, voice) }
+    }
+
+    private fun decodeImpl(tokens: LongArray, voice: CbVoice): FloatArray {
         val all = voice.genTokens + tokens
         return OnnxTensor.createTensor(env, LongBuffer.wrap(all), longArrayOf(1, all.size.toLong())).use { st ->
             tensor(voice.xvec, longArrayOf(1, 192)).use { xv ->
@@ -265,7 +316,7 @@ class CbEngine(private val dir: File, threads: Int = 4, decoderFile: String = DE
     private fun tensor(a: FloatArray, shape: LongArray) = OnnxTensor.createTensor(env, FloatBuffer.wrap(a), shape)
 
     override fun close() {
-        releaseRegistrationModels(); listOf(lm, cond, dec).forEach { runCatching { it.close() } }; tables.close()
+        synchronized(this) { closeRegistration(); closeSynthesis() }
     }
 
     /** Repetition penalty → temperature → min-p → top-p → multinomial (HF logits-processor semantics). */

@@ -18,6 +18,7 @@ import java.io.File
 class KoreanVoiceApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        CrashReport.install(this)
         AppGraph.init(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(SynthesisService.CHANNEL, "음성 생성·학습", NotificationManager.IMPORTANCE_LOW))
@@ -184,7 +185,14 @@ class JobManager {
     @Volatile var pending: TaskRequest? = null
     @Volatile var cancelRequested = false
 
-    fun update(s: JobState) { _state.value = s }
+    fun update(s: JobState) {
+        _state.value = s
+        CrashReport.step(when (s) {
+            is JobState.Preparing -> "${s.kind.label}: ${s.message}"
+            is JobState.Running -> "${s.kind.label}: ${s.primary}"
+            else -> null
+        })
+    }
     val isBusy: Boolean get() = _state.value.let { it is JobState.Preparing || it is JobState.Running }
     fun reset() { if (!isBusy) _state.value = JobState.Idle }
 }

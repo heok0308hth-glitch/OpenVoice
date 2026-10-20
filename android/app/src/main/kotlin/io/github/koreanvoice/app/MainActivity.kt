@@ -17,6 +17,13 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.layout.Column
@@ -83,12 +90,38 @@ fun AppTheme(content: @Composable () -> Unit) {
 private fun Root() {
     val modelState by AppGraph.models.state.collectAsState()
     LaunchedEffect(Unit) { AppGraph.models.check() }
+    var crash by remember { mutableStateOf(CrashReport.pending()) }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (val s = modelState) {
             ModelManager.State.Ready -> MainTabs()
             else -> if (uiTestMode) MainTabs() else ModelSetupScreen(s)
         }
     }
+    crash?.let { r -> CrashDialog(r) { CrashReport.dismiss(); crash = null } }
+}
+
+@Composable
+private fun CrashDialog(r: CrashReport.Report, onClose: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(r.title) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(r.advice, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                Text(r.details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("확인") } },
+        dismissButton = {
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(r.title + "\n" + r.details))
+                Toast.makeText(context, "복사했습니다", Toast.LENGTH_SHORT).show()
+            }) { Text("내용 복사") }
+        },
+    )
 }
 
 @Composable

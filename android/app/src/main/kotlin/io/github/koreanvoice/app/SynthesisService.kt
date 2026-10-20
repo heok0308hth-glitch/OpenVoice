@@ -151,6 +151,7 @@ class SynthesisService : Service() {
     // ------------------------------------------------------------------ learning from audio / video
     private fun learn(req: TaskRequest.Learn): JobState.Done {
         val engine = AppGraph.engine()
+        engine.releaseSynthesisModels()      // learning needs only the registration models: peak memory ≈0.8 GB instead of ≈1.9 GB
         val bank = AppGraph.voices.bank(req.voiceId) ?: error("목소리를 찾을 수 없습니다.")
         val before = bank.segments.size
         val collector = bank.Collector(engine)

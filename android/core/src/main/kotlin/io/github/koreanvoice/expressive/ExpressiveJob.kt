@@ -139,6 +139,9 @@ class ExpressiveJob(
         val start = System.currentTimeMillis()
         onProgress(Progress(cs.size - todo.size, cs.size, 0, -1, ""))
         var done = cs.size - todo.size
+        // build every voice up front, then free the registration models (≈450 MB) before the synthesis peak
+        todo.map { cs[it].style }.distinct().forEach { voiceFor(it) }
+        engine.releaseRegistrationModels()
         fun finished(i: Int, audio: FloatArray) {
             AudioTools.writePcm16(chunkFile(i), audio)
             done++; charsDone += cs[i].text.length

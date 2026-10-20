@@ -31,5 +31,5 @@ tasks.test {
     systemProperty("modelDir", System.getProperty("modelDir") ?: "")
     systemProperty("goldenDir", System.getProperty("goldenDir") ?: "")
     systemProperty("outDir", System.getProperty("outDir") ?: "")
-    for (k in listOf("cbModelDir", "cbGoldenDir", "krefDir", "study", "speakers", "tuner")) systemProperty(k, System.getProperty(k) ?: "")
+    for (k in listOf("cbModelDir", "cbGoldenDir", "krefDir", "study", "speakers", "tuner", "variant")) systemProperty(k, System.getProperty(k) ?: "")
 }
