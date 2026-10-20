@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileOpen
@@ -47,6 +48,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -58,7 +60,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Surface
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -72,7 +78,7 @@ private val BACKGROUNDS = listOf("없음", "빗소리", "바람", "실내", "백
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, onGoLibrary: () -> Unit) {
+fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, onGoLibrary: () -> Unit, onEdit: () -> Unit, onOpenTxt: () -> Unit) {
     val ctx = LocalContext.current
     val settings = AppGraph.settings
     val voices by AppGraph.voices.voices.collectAsState()
@@ -81,11 +87,12 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
     val playing by Player.playing.collectAsState()
     val clipboard = LocalClipboardManager.current
 
-    var field by remember { mutableStateOf(TextFieldValue(settings.draftText)) }
+    val field = vm.script
     var title by rememberSaveable { mutableStateOf("") }
     var voiceId by rememberSaveable { mutableStateOf(settings.lastVoiceId) }
     val usable = voices.filter { it.segments > 0 }
     if (voiceId == null || usable.none { it.id == voiceId }) voiceId = usable.firstOrNull()?.id
+    LaunchedEffect(voiceId) { if (voiceId != null && settings.lastVoiceId != voiceId) settings.lastVoiceId = voiceId }   // the editor's preview uses it
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
     var showDict by remember { mutableStateOf(false) }
@@ -95,24 +102,13 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
     var hq by remember { mutableStateOf(settings.highQualityDecoder) }
     var bgUri by remember { mutableStateOf<Uri?>(null) }
     fun upd(n: DeliverySettings) { d = n; settings.delivery = n }
-    fun setText(v: TextFieldValue) {
-        field = if (v.text.length > MAX_CHARS) v.copy(text = v.text.take(MAX_CHARS)) else v
-        settings.draftText = field.text
-    }
-    fun insert(tag: String) {
-        val t = field.text; val s = field.selection.min; val e = field.selection.max
-        setText(TextFieldValue(t.substring(0, s) + tag + t.substring(e), TextRange(s + tag.length)))
-    }
-
-    val openText = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.loadTextFile(uri) { t ->
-            if (t.length > MAX_CHARS) Toast.makeText(ctx, "100,000자까지만 불러왔습니다.", Toast.LENGTH_LONG).show()
-            setText(TextFieldValue(t.take(MAX_CHARS)))
-        }
-    }
+    var confirmClear by remember { mutableStateOf(false) }
+    val tagColor = MaterialTheme.colorScheme.primary; val readingColor = MaterialTheme.colorScheme.tertiary
+    val highlight = remember(tagColor, readingColor) { TagHighlight(tagColor, readingColor) }
     val openBg = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) { bgUri = uri; upd(d.copy(background = "파일")) } }
 
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize()) {
+    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("텍스트를 목소리로", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
         // voice picker
@@ -137,41 +133,24 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
         OutlinedTextField(value = title, onValueChange = { title = it.take(60) }, label = { Text("제목 (파일 이름, 선택)") },
             singleLine = true, modifier = Modifier.fillMaxWidth())
 
-        OutlinedTextField(
-            value = field, onValueChange = { setText(it) },
-            label = { Text("읽을 글 (한국어)") },
-            placeholder = { Text("글을 붙여넣거나 TXT 파일을 불러오세요.\n[기쁨], [쉼:1], [울림:홀], {NASA|나사} 같은 태그로 부분마다 읽는 법을 지정할 수 있습니다.") },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 380.dp),
-            supportingText = { Text("${"%,d".format(field.text.length)} / ${"%,d".format(MAX_CHARS)}자" + estimateLabel(field.text.length)) },
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { openText.launch(arrayOf("text/plain", "text/*")) }) { Icon(Icons.Filled.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("TXT") }
-            OutlinedButton(onClick = { clipboard.getText()?.text?.let { insert(it) } }) { Icon(Icons.Filled.ContentPaste, null); Spacer(Modifier.width(4.dp)); Text("붙여넣기") }
-            OutlinedButton(onClick = { setText(TextFieldValue("")) }) { Icon(Icons.Filled.Delete, null); Spacer(Modifier.width(4.dp)); Text("지우기") }
-        }
-
-        // professional tag toolbar
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // script: a read-only preview here; writing happens in the full-screen editor (keyboard-friendly)
+        Card(Modifier.fillMaxWidth().clickable { onEdit() }) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("부분 지정 태그 (커서 위치에 삽입)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { showHelp = !showHelp }) { Text(if (showHelp) "설명 닫기" else "설명") }
+                    Text("대본", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text("${"%,d".format(field.text.length)}자" + estimateLabel(field.text.length), style = MaterialTheme.typography.bodySmall)
                 }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TagMenu("감정", Emotion.entries.filter { it != Emotion.NEUTRAL }.flatMap { e -> listOf("[${e.label}]" to e.label, "[${e.label}:강]" to "${e.label} (강하게)", "[${e.label}:약]" to "${e.label} (살짝)") }, ::insert)
-                    TagMenu("속도", listOf("[속도:빠르게]" to "빠르게", "[속도:느리게]" to "느리게", "[속도:1.2]" to "1.2배", "[속도:0.8]" to "0.8배", "[/속도]" to "원래대로"), ::insert)
-                    TagMenu("높이", listOf("[높이:높게]" to "높게", "[높이:낮게]" to "낮게", "[높이:+1]" to "+1 반음", "[높이:-1]" to "-1 반음", "[/높이]" to "원래대로"), ::insert)
-                    TagMenu("쉼", listOf("[쉼:0.5]" to "0.5초", "[쉼:1]" to "1초", "[쉼:2]" to "2초", "[쉼:3]" to "3초"), ::insert)
-                    TagMenu("울림", Dsp.Room.entries.filter { it != Dsp.Room.NONE }.map { "[울림:${it.label}]" to it.label } + listOf("[울림:없음]" to "없음"), ::insert)
-                    TagMenu("상태", Dsp.State.entries.filter { it != Dsp.State.NORMAL }.map { "[${it.label}]" to it.label } + listOf("[/상태]" to "원래대로"), ::insert)
-                    TagMenu("톤", Dsp.Tone.entries.map { "[톤:${it.label}]" to it.label }, ::insert)
-                    TagMenu("말끝", listOf("[말끝:올림]" to "끝을 올려서", "[말끝:살짝올림]" to "살짝 올려서", "[말끝:내림]" to "끝을 내려서",
-                        "[말끝:살짝내림]" to "살짝 내려서", "[말끝:길게]" to "끝을 길게", "[말끝:짧게]" to "끝을 짧게", "[/말끝]" to "원래대로"), ::insert)
-                    TagMenu("소리(실험)", Markup.NONVERBAL.keys.map { "[$it]" to it }, ::insert)
-                    AssistChip(onClick = { insert("{표기|읽는법}") }, label = { Text("읽는법") })
-                    AssistChip(onClick = { insert("[기본]") }, label = { Text("초기화") })
+                if (field.text.isBlank()) Text("눌러서 읽을 글을 쓰거나 붙여넣으세요.\n편집 화면에서 감정·쉼·말끝·울림 같은 태그를 부분마다 넣을 수 있습니다.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else Text(highlight.filter(AnnotatedString(field.text.take(1200))).text, maxLines = 8, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Button(onClick = onEdit) { Icon(Icons.Filled.Edit, null); Spacer(Modifier.width(4.dp)); Text(if (field.text.isBlank()) "글쓰기" else "편집") }
+                    OutlinedButton(onClick = onOpenTxt) { Icon(Icons.Filled.FileOpen, null); Spacer(Modifier.width(4.dp)); Text("TXT") }
+                    OutlinedButton(onClick = { clipboard.getText()?.text?.let { p -> vm.updateScript(TextFieldValue(field.text + p, TextRange((field.text + p).length))) } }) {
+                        Icon(Icons.Filled.ContentPaste, null); Spacer(Modifier.width(4.dp)); Text("붙여넣기") }
+                    if (field.text.isNotEmpty()) OutlinedButton(onClick = { confirmClear = true }) { Icon(Icons.Filled.Delete, null); Spacer(Modifier.width(4.dp)); Text("지우기") }
                 }
-                if (showHelp) Text(MARKUP_HELP, style = MaterialTheme.typography.bodySmall)
             }
         }
 
@@ -237,31 +216,41 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
             }
         }
 
-        val busy = AppGraph.jobs.isBusy
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(enabled = field.text.isNotBlank() && preview !is MainViewModel.PreviewState.Working && !busy,
-                onClick = { vm.preview(field.text, voiceId, d) }) {
-                if (preview is MainViewModel.PreviewState.Working) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Filled.PlayArrow, null)
-                Spacer(Modifier.width(4.dp)); Text("미리듣기")
-            }
-            Button(enabled = field.text.isNotBlank() && !busy && voiceId != null, onClick = {
-                val t = title.ifBlank { Markup.applyReadings(field.text).replace(Regex("\\[[^\\]]*\\]"), "").trim().lineSequence().first().take(20) }
-                SynthesisService.start(ctx, TaskRequest.Synthesis(field.text, t, voiceId!!, d, bitrate, if (d.background == "파일") bgUri else null, settings.dictionary))
-            }, modifier = Modifier.weight(1f)) { Text("MP3 만들기") }
-        }
-        when (val pv = preview) {
-            is MainViewModel.PreviewState.Working -> Text(pv.message, style = MaterialTheme.typography.bodySmall)
-            is MainViewModel.PreviewState.Ready -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("미리듣기 준비됨 (처리 시간 = 음성 길이의 ${"%.1f".format(pv.rtf)}배)", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                IconButton(onClick = { Player.toggle(pv.file) }) { Icon(if (playing == pv.file.path) Icons.Filled.Stop else Icons.Filled.PlayArrow, null) }
-            }
-            is MainViewModel.PreviewState.Error -> Text("미리듣기 오류: ${pv.message}", color = MaterialTheme.colorScheme.error)
-            else -> {}
-        }
         JobCard(job, playing, onGoLibrary, setOf(TaskKind.SYNTHESIS))
         Text("※ 본인 또는 동의를 받은 사람의 목소리만 사용하세요. 생성된 MP3에는 'AI 생성 음성' 정보가 기록됩니다.", style = MaterialTheme.typography.bodySmall)
     }
+        // action bar pinned to the bottom (always reachable, also above the keyboard)
+        Surface(tonalElevation = 3.dp, shadowElevation = 6.dp) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                val busy = AppGraph.jobs.isBusy
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(enabled = field.text.isNotBlank() && preview !is MainViewModel.PreviewState.Working && !busy,
+                        onClick = { vm.preview(field.text, voiceId, d) }) {
+                        if (preview is MainViewModel.PreviewState.Working) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Filled.PlayArrow, null)
+                        Spacer(Modifier.width(4.dp)); Text("미리듣기")
+                    }
+                    Button(enabled = field.text.isNotBlank() && !busy && voiceId != null, onClick = {
+                        val t = title.ifBlank { Markup.applyReadings(field.text).replace(Regex("\\[[^\\]]*\\]"), "").trim().lineSequence().first().take(20) }
+                        SynthesisService.start(ctx, TaskRequest.Synthesis(field.text, t, voiceId!!, d, bitrate, if (d.background == "파일") bgUri else null, settings.dictionary))
+                    }, modifier = Modifier.weight(1f)) { Text("MP3 만들기") }
+                }
+                when (val pv = preview) {
+                    is MainViewModel.PreviewState.Working -> Text(pv.message, style = MaterialTheme.typography.bodySmall)
+                    is MainViewModel.PreviewState.Ready -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("미리듣기 준비됨 (처리 시간 = 음성 길이의 ${"%.1f".format(pv.rtf)}배)", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { Player.toggle(pv.file) }) { Icon(if (playing == pv.file.path) Icons.Filled.Stop else Icons.Filled.PlayArrow, null) }
+                    }
+                    is MainViewModel.PreviewState.Error -> Text("미리듣기 오류: ${pv.message}", color = MaterialTheme.colorScheme.error)
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("대본 지우기") }, text = { Text("대본을 모두 지울까요? (편집 화면에서 실행 취소 가능)") },
+        confirmButton = { TextButton(onClick = { vm.updateScript(TextFieldValue("")); confirmClear = false }) { Text("지우기") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("취소") } })
 
     if (showDict) {
         var txt by remember { mutableStateOf(settings.dictionaryText) }
@@ -277,18 +266,7 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
     }
 }
 
-@Composable
-private fun TagMenu(label: String, items: List<Pair<String, String>>, onPick: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        AssistChip(onClick = { open = true }, label = { Text(label) })
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            items.forEach { (tag, name) -> DropdownMenuItem(text = { Text("$name   $tag") }, onClick = { onPick(tag); open = false }) }
-        }
-    }
-}
-
-private const val MARKUP_HELP = """• 감정: [기쁨] [슬픔] [화남] [차분] [신남] [진지] [다정] [놀람] [긴장] [두려움] — 다음 태그가 나올 때까지 유지. [기쁨:강] [기쁨:약] 처럼 강도 지정
+const val MARKUP_HELP = """• 감정: [기쁨] [슬픔] [화남] [차분] [신남] [진지] [다정] [놀람] [긴장] [두려움] — 다음 태그가 나올 때까지 유지. [기쁨:강] [기쁨:약] 처럼 강도 지정
 • 속도·높이: [속도:1.2] [속도:느리게] [높이:+2] [높이:낮게]
 • 쉼: [쉼:1.5] (초)
 • 울림: [울림:방|스튜디오|욕실|무대|홀|성당|동굴|없음], 양 지정 [울림:홀:0.4]
@@ -299,7 +277,7 @@ private const val MARKUP_HELP = """• 감정: [기쁨] [슬픔] [화남] [차�
 • 되돌리기: [/감정] [/속도] [/상태] [/말끝] … 또는 [기본]
 • 소리(실험적): [웃음] [한숨] [헛기침] [숨] [흐느낌] — 모델이 항상 소리를 내지는 않습니다."""
 
-private fun estimateLabel(chars: Int): String {
+fun estimateLabel(chars: Int): String {
     if (chars < 200) return ""
     val audioMin = chars / 7.0 / 60.0 // Korean read speech ≈ 7 characters per second
     return " · 예상 음성 길이 약 ${if (audioMin >= 60) "%.1f시간".format(audioMin / 60) else "%.0f분".format(audioMin.coerceAtLeast(1.0))}"

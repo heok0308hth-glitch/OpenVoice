@@ -8,7 +8,13 @@ import androidx.lifecycle.viewModelScope
 import io.github.koreanvoice.audio.AudioTools
 import io.github.koreanvoice.audio.Dsp
 import io.github.koreanvoice.expressive.ExpressiveJob
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.TextFieldValue
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -16,6 +22,48 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
+
+    // ------------------------------------------------------------------ script (shared by the main screen and the editor)
+    var script by mutableStateOf(TextFieldValue(AppGraph.settings.draftText)); private set
+    private val undoStack = ArrayDeque<TextFieldValue>()
+    private val redoStack = ArrayDeque<TextFieldValue>()
+    var canUndo by mutableStateOf(false); private set
+    var canRedo by mutableStateOf(false); private set
+    private var saveJob: Job? = null
+    private var lastSnapshot = 0L
+
+    /** Updates the script; history snapshots are grouped (≥ 1 s apart) and saving is debounced. */
+    fun updateScript(v: TextFieldValue) {
+        val nv = if (v.text.length > MAX_CHARS) v.copy(text = v.text.take(MAX_CHARS)) else v
+        if (nv.text != script.text) {
+            val now = System.currentTimeMillis()
+            if (now - lastSnapshot > 1000 || undoStack.isEmpty()) { undoStack.addLast(script); if (undoStack.size > 100) undoStack.removeFirst() }
+            lastSnapshot = now
+            redoStack.clear()
+        }
+        script = nv
+        canUndo = undoStack.isNotEmpty(); canRedo = redoStack.isNotEmpty()
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch(Dispatchers.IO) { delay(800); AppGraph.settings.draftText = nv.text }
+    }
+
+    fun undo() {
+        val prev = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(script); script = prev; lastSnapshot = 0
+        canUndo = undoStack.isNotEmpty(); canRedo = true
+        AppGraph.settings.draftText = prev.text
+    }
+
+    fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(script); script = next; lastSnapshot = 0
+        canUndo = true; canRedo = redoStack.isNotEmpty()
+        AppGraph.settings.draftText = next.text
+    }
+
+    fun saveScriptNow() { saveJob?.cancel(); AppGraph.settings.draftText = script.text }
+
+    override fun onCleared() { saveScriptNow(); super.onCleared() }
 
     // ------------------------------------------------------------------ preview
     sealed interface PreviewState {

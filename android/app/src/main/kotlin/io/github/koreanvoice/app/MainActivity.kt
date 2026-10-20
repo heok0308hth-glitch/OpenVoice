@@ -9,7 +9,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,11 +62,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // debug builds only: open the UI without the model pack (for UI testing on emulators)
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra("ui_test", false) == true) uiTestMode = true
         setContent { AppTheme { Root() } }
     }
 }
 
 private val Brand = Color(0xFF3D5AFE)
+private var uiTestMode = false
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
@@ -74,7 +86,7 @@ private fun Root() {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (val s = modelState) {
             ModelManager.State.Ready -> MainTabs()
-            else -> ModelSetupScreen(s)
+            else -> if (uiTestMode) MainTabs() else ModelSetupScreen(s)
         }
     }
 }
@@ -116,17 +128,33 @@ private fun ModelSetupScreen(state: ModelManager.State) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MainTabs() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var editing by rememberSaveable { mutableStateOf(false) }
     val vm: MainViewModel = viewModel()
+    val ctx = LocalContext.current
+    val openTxt = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.loadTextFile(uri) { t ->
+            if (t.length > MAX_CHARS) Toast.makeText(ctx, "100,000자까지만 불러왔습니다.", Toast.LENGTH_LONG).show()
+            vm.updateScript(TextFieldValue(t.take(MAX_CHARS)))
+        }
+    }
+    val launchTxt = { openTxt.launch(arrayOf("text/plain", "text/*")) }
     val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
+    if (editing) {
+        ScriptEditor(vm, onClose = { editing = false; vm.saveScriptNow() }, onOpenTxt = launchTxt)
+        return
+    }
+    // the bottom navigation hides while the keyboard is up, and every tab is padded for the keyboard
+    val imeVisible = WindowInsets.isImeVisible
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            if (!imeVisible) NavigationBar {
                 listOf(
                     Triple("생성", Icons.Filled.TextFields, 0),
                     Triple("목소리", Icons.Filled.RecordVoiceOver, 1),
@@ -138,9 +166,9 @@ private fun MainTabs() {
             }
         },
     ) { pad ->
-        val m = Modifier.padding(pad)
+        val m = Modifier.padding(pad).consumeWindowInsets(pad).imePadding()
         when (tab) {
-            0 -> SynthScreen(vm, m, onGoVoices = { tab = 1 }, onGoLibrary = { tab = 2 })
+            0 -> SynthScreen(vm, m, onGoVoices = { tab = 1 }, onGoLibrary = { tab = 2 }, onEdit = { editing = true }, onOpenTxt = launchTxt)
             1 -> VoicesScreen(vm, m, onGoLibrary = { tab = 2 })
             2 -> LibraryScreen(m)
             else -> AboutScreen(m)
