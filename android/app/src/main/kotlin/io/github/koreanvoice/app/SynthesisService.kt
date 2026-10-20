@@ -52,9 +52,21 @@ class SynthesisService : Service() {
         val req = AppGraph.jobs.pending ?: run { stopSelf(); return START_NOT_STICKY }
         AppGraph.jobs.pending = null
         AppGraph.jobs.cancelRequested = false
-        val type = if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-        else if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0
-        ServiceCompat.startForeground(this, NOTIF_ID, progressNotification(req.title, "준비 중…", 0f), type)
+        val notif = progressNotification(req.title, "준비 중…", 0f)
+        try {
+            // Not ServiceCompat.startForeground: androidx.core 1.16 masks the type with the API-34 type set,
+            // which turns mediaProcessing (API 35) into "none" and Android 15+ refuses to start the service.
+            when {
+                Build.VERSION.SDK_INT >= 35 -> startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING)
+                Build.VERSION.SDK_INT >= 29 -> startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                else -> startForeground(NOTIF_ID, notif)
+            }
+        } catch (e: Exception) {
+            // e.g. the daily background-work limit of Android 15+ is used up: report it instead of crashing
+            AppGraph.jobs.update(JobState.Failed(kindOf(req), "백그라운드 작업을 시작할 수 없습니다: ${e.message ?: e.javaClass.simpleName}"))
+            stopSelf(); return START_NOT_STICKY
+        }
+        timedOut = false
         wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KoreanVoice:work").apply { acquire(12 * 60 * 60 * 1000L) }
         scope.launch { run(req) }
@@ -62,6 +74,15 @@ class SynthesisService : Service() {
     }
 
     private val cancelled get() = AppGraph.jobs.cancelRequested
+    @Volatile private var timedOut = false
+
+    /** Android 15+: the daily time budget for this foreground-service type ran out; must stop within seconds. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        timedOut = true
+        AppGraph.jobs.cancelRequested = true
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
     private var lastNotif = 0L
 
     private fun report(s: JobState.Running) {
@@ -93,9 +114,9 @@ class SynthesisService : Service() {
             jobs.update(done)
             doneNotification(done.title, done.summary.lineSequence().first())
         } catch (e: ExpressiveJob.CancelledException) {
-            jobs.update(JobState.Cancelled(kind))
+            jobs.update(cancelledState(kind))
         } catch (e: InterruptedException) {
-            jobs.update(JobState.Cancelled(kind))
+            jobs.update(cancelledState(kind))
         } catch (e: OutOfMemoryError) {
             AppGraph.releaseEngine()
             jobs.update(JobState.Failed(kind, "메모리가 부족합니다. 다른 앱을 종료하거나 '절전' 성능 모드를 사용해 주세요."))
@@ -110,6 +131,11 @@ class SynthesisService : Service() {
             stopSelf()
         }
     }
+
+    private fun cancelledState(kind: TaskKind): JobState =
+        if (timedOut) JobState.Failed(kind, "안드로이드의 하루 백그라운드 작업 시간 제한(6시간)에 걸려 멈췄습니다. " +
+            "앱을 연 상태에서 다시 시작해 주세요(음성 생성은 끝난 문장부터 이어서 진행합니다).")
+        else JobState.Cancelled(kind)
 
     // ------------------------------------------------------------------ synthesis
     private fun synthesize(req: TaskRequest.Synthesis): JobState.Done {

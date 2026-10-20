@@ -182,7 +182,7 @@ private fun LearnDialog(vm: MainViewModel, voiceId: String?, onClose: () -> Unit
         onDismissRequest = { if (!recording) onClose() },
         title = { Text(if (existing == null) "새 목소리" else "‘${existing.name}’ 추가 학습") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.hideKeyboardOnTap().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(consent, { consent = it; AppGraph.settings.consentAccepted = it })
                     Text("본인의 목소리이거나, 목소리 주인의 동의를 받았습니다. 타인을 사칭하거나 속이는 데 사용하지 않겠습니다.",

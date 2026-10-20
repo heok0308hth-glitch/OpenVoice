@@ -15,6 +15,11 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -101,6 +106,7 @@ class TagHighlight(private val tag: Color, private val reading: Color) : VisualT
  * directly above it. Tags insert at the cursor; with text selected they wrap the selection
  * ("[기쁨]선택한 부분[/감정]").
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ScriptEditor(vm: MainViewModel, onClose: () -> Unit, onOpenTxt: () -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -116,6 +122,9 @@ fun ScriptEditor(vm: MainViewModel, onClose: () -> Unit, onOpenTxt: () -> Unit) 
     val preview by vm.preview.collectAsState()
     val playing by Player.playing.collectAsState()
     BackHandler { onClose() }
+    var textBottom by remember { mutableFloatStateOf(0f) }
+    val tapMargin = with(LocalDensity.current) { 12.dp.toPx() }
+    val imeVisible = rememberUpdatedState(WindowInsets.isImeVisible)
 
     /** The selection, or the paragraph at the cursor, prefixed by the style tags in effect at that point. */
     fun previewPart() {
@@ -145,7 +154,7 @@ fun ScriptEditor(vm: MainViewModel, onClose: () -> Unit, onOpenTxt: () -> Unit) 
     }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).hideKeyboardOnTap(clearFocus = false)) {
             // top bar
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "완료") }
@@ -185,7 +194,11 @@ fun ScriptEditor(vm: MainViewModel, onClose: () -> Unit, onOpenTxt: () -> Unit) 
                 visualTransformation = if (field.text.length <= 30_000) highlight else VisualTransformation.None,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onBackground, fontSize = 17.sp, lineHeight = 26.sp),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).focusRequester(focus),
+                onTextLayout = { textBottom = it.size.height.toFloat() },
+                // tapping the blank space under the text hides the keyboard (tap again to bring it back)
+                modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                    .hideKeyboardOnTapBelow({ textBottom + tapMargin }, { imeVisible.value && field.text.isNotEmpty() })
+                    .focusRequester(focus),
                 decorationBox = { inner ->
                     Box {
                         if (field.text.isEmpty()) Text("여기에 읽을 글을 쓰거나 붙여넣으세요.\n아래 태그 버튼으로 감정·쉼·말끝·울림 등을 부분마다 지정할 수 있습니다.\n글자를 선택한 뒤 태그를 누르면 그 부분에만 적용됩니다.",

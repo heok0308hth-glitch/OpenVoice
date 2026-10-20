@@ -71,6 +71,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // debug builds only: open the UI without the model pack (for UI testing on emulators)
         if (BuildConfig.DEBUG && intent?.getBooleanExtra("ui_test", false) == true) uiTestMode = true
+        // debug builds only: start a learning task with a short synthetic recording (foreground-service start test)
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra("fgs_test", false) == true) {
+            val tone = FloatArray(16000) { (0.1 * kotlin.math.sin(it * 0.1)).toFloat() }
+            SynthesisService.start(this, TaskRequest.Learn(AppGraph.voices.create("fgs_test"), "fgs_test 학습", emptyList(), tone to 16000))
+        }
         setContent { AppTheme { Root() } }
     }
 }
@@ -199,7 +204,7 @@ private fun MainTabs() {
             }
         },
     ) { pad ->
-        val m = Modifier.padding(pad).consumeWindowInsets(pad).imePadding()
+        val m = Modifier.padding(pad).consumeWindowInsets(pad).imePadding().hideKeyboardOnTap()
         when (tab) {
             0 -> SynthScreen(vm, m, onGoVoices = { tab = 1 }, onGoLibrary = { tab = 2 }, onEdit = { editing = true }, onOpenTxt = launchTxt)
             1 -> VoicesScreen(vm, m, onGoLibrary = { tab = 2 })

@@ -11,7 +11,7 @@
 
 | 파일 | 크기 | 설명 |
 |---|---|---|
-| [**KoreanVoice-lite.apk**](https://github.com/heok0308hth-glitch/OpenVoice/raw/claude/openvoice-android-tts-cyy4y6/android/release/KoreanVoice-lite.apk) (v2.1.2) | 16MB | 첫 실행 때 이 저장소의 `android/modelpack`에서 모델(약 920MB)을 1회 받은 뒤 오프라인 동작. **Wi-Fi 권장** |
+| [**KoreanVoice-lite.apk**](https://github.com/heok0308hth-glitch/OpenVoice/raw/claude/openvoice-android-tts-cyy4y6/android/release/KoreanVoice-lite.apk) (v2.1.3) | 16MB | 첫 실행 때 이 저장소의 `android/modelpack`에서 모델(약 920MB)을 1회 받은 뒤 오프라인 동작. **Wi-Fi 권장** |
 
 - v1(1.0.0)과 같은 서명이라 **덮어 설치(업데이트)** 됩니다. v1 모델(212MB)은 업데이트 후 자동 삭제되고 새 모델을 받습니다.
 - v1에서 만든 목소리는 엔진이 달라 옮겨지지 않습니다. 같은 음성 파일로 다시 학습해 주세요.
@@ -88,6 +88,13 @@ v1(OpenVoice V2 + MeloTTS-Korean)은 "**음색만 바꾸는**" 구조라 말투�
 - 글자를 **선택한 뒤 태그를 누르면 그 부분에만** 적용됩니다(`[기쁨]선택[/감정]`처럼 자동으로 감쌈).
 - 태그 색 강조, 실행 취소/다시 실행, 키보드 숨기기, **선택 부분/현재 문단 바로 듣기**.
 - 생성 화면의 '미리듣기/MP3 만들기' 버튼은 화면 아래에 고정.
+
+### Android 15 이상에서 학습·생성 시작 시 튕김 수정 (v2.1.3)
+- 원인: androidx 라이브러리(ServiceCompat)가 Android 15에 새로 생긴 백그라운드 작업 유형(mediaProcessing)을 지워 '유형 없음'으로 서비스를 시작했고,
+  Android 15+는 이를 금지해 앱이 종료됐습니다. 이제 유형을 직접 지정해 시작하고, 시작이 거부되면 튕기지 않고 이유를 보여 줍니다.
+- Android 15+의 하루 6시간 백그라운드 작업 제한에 걸리면 작업을 안전하게 멈추고 안내합니다(음성 생성은 다시 시작하면 이어서 진행).
+- **빈 곳을 누르면 키보드가 내려갑니다**: 대본 편집기에서는 글 아래 빈 공간이나 위쪽 제목 부분을 누르면 키보드가 들어가고(커서 위치는 유지),
+  다시 글을 누르면 키보드가 올라옵니다. 다른 화면과 대화상자에서도 빈 곳을 누르면 키보드가 내려갑니다.
 
 ### 목소리 학습 중 강제 종료 수정 (v2.1.2)
 - 학습할 때 쓰지 않는 합성 모델을 더 이상 불러오지 않고, 음성 토크나이저가 메모리에서 2배로 커지던 문제(fp16 가중치를 fp32로 미리 변환)를 없앴습니다.

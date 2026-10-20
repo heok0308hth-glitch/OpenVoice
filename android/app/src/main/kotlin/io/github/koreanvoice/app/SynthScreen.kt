@@ -256,7 +256,7 @@ fun SynthScreen(vm: MainViewModel, modifier: Modifier, onGoVoices: () -> Unit, o
         var txt by remember { mutableStateOf(settings.dictionaryText) }
         AlertDialog(onDismissRequest = { showDict = false }, title = { Text("발음 사전") },
             text = {
-                Column {
+                Column(Modifier.hideKeyboardOnTap()) {
                     Text("한 줄에 하나씩 ‘표기=읽는법’ 형식으로 적으면 글 전체에 적용됩니다.\n예) GPT=지피티\n예) 1등=일등", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(txt, { txt = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp))
                 }
